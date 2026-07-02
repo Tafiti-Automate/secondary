@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}{{ page_title }}{% endblock %}
+{% block header_title %}{{ page_title }}{% endblock %}
+{% block content %}
+<div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div><p class="eyebrow">{{ eyebrow }}</p><h1 class="page-title mt-2">{{ page_title }}</h1><p class="mt-2 text-sm text-slate-500">Manage current records. Archived records remain available in the audit trail.</p></div>{% if create_url %}<a href="{{ create_url }}" class="btn-primary">＋ Add record</a>{% endif %}</div>
+<form class="mb-4 flex max-w-lg gap-2"><input class="form-control !mt-0" type="search" name="q" value="{{ request.GET.q }}" placeholder="Search records…"><button class="btn-secondary">Search</button></form>
+{% if rows %}<div class="table-wrap"><table class="data-table"><thead><tr>{% for column in columns %}<th>{{ column }}</th>{% endfor %}<th class="text-right">Actions</th></tr></thead><tbody>{% for row in rows %}<tr>{% for value in row.values %}<td>{{ value }}</td>{% endfor %}<td><div class="flex justify-end gap-2">{% if row.edit_url %}<a href="{{ row.edit_url }}" class="btn-secondary !min-h-8 !px-3 !py-1">Edit</a>{% endif %}{% if row.delete_url %}<a href="{{ row.delete_url }}" class="btn-danger !min-h-8 !px-3 !py-1">Archive</a>{% endif %}</div></td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty-state"><div class="mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-brand-50 text-2xl text-brand-700">◇</div><h2 class="font-display text-lg font-bold">No records yet</h2><p class="mt-1 max-w-sm text-sm text-slate-500">Add the first record to begin configuring this area.</p>{% if create_url %}<a href="{{ create_url }}" class="btn-primary mt-5">Add first record</a>{% endif %}</div>{% endif %}
+{% include "shared/pagination.html" %}
+{% endblock %}

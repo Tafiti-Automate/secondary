@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Attendance summary{% endblock %}
+{% block header_title %}Attendance summary{% endblock %}
+{% block content %}
+<div class="mb-6 flex items-end justify-between">
+  <div><p class="eyebrow">Register summary</p><h1 class="page-title mt-2">{{ session.stream }} · {{ session.date }}</h1><p class="mt-2 text-sm text-slate-500">{{ session.get_session_type_display }} · {{ session.taken_by }}</p></div>
+  <a class="btn-primary" href="{% url 'attendance:take' session.pk %}">Edit register</a>
+</div>
+<div class="grid gap-4 sm:grid-cols-3">
+  <div class="card-pad"><p class="text-sm text-slate-500">Total recorded</p><p class="mt-2 text-3xl font-extrabold">{{ session.total_records }}</p></div>
+  <div class="card-pad"><p class="text-sm text-slate-500">Absent</p><p class="mt-2 text-3xl font-extrabold text-rose-600">{{ session.absent_records }}</p></div>
+  <div class="card-pad"><p class="text-sm text-slate-500">Present rate</p><p class="mt-2 text-3xl font-extrabold text-brand-600">{% widthratio session.present_records session.total_records 100 %}%</p></div>
+</div>
+<div class="mt-6 table-wrap"><table class="data-table"><thead><tr><th>Student</th><th>Status</th><th>Reason</th></tr></thead><tbody>{% for record in session.records.all %}<tr><td>{{ record.student.full_name }}</td><td><span class="{% if record.status == 'present' %}badge-green{% elif record.status == 'absent' %}badge-amber{% else %}badge-blue{% endif %}">{{ record.get_status_display }}</span></td><td>{{ record.reason|default:"—" }}</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

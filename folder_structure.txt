@@ -1,0 +1,23 @@
+secondary/
+├── accounts/           # Users, roles, JWT, profiles, audit logs, activity middleware
+├── academics/          # School profile, calendar, classes, subjects, combinations, allocations
+├── students/           # Admissions, guardians, enrolments, promotions
+├── assessments/        # Continuous assessment, submissions, CBC framework and ratings
+├── exams/              # Sessions, grade scales, mark entry and approval workflow
+├── attendance/         # Daily/subject/student/teacher attendance and analytics
+├── timetables/         # Rooms, time slots, conflict-aware schedules
+├── reports/            # Report engine, analytics, PDF and Excel exports
+├── communications/     # Notices, resources, alerts and delivery providers
+├── config/             # Settings, URL routing, permissions, shared forms/tables/auditing
+├── templates/          # Responsive role portals and every workflow page
+├── assets/css/         # Tailwind source and design-system components
+├── static/css/         # Compiled production CSS
+├── seed_data.py        # Idempotent S1–S6 demonstration dataset
+├── Dockerfile
+├── docker-compose.yml
+├── tailwind.config.js
+├── package.json
+├── requirements.txt
+├── API.md
+├── ERD.md
+└── DEPLOYMENT.md

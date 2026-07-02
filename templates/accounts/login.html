@@ -1,0 +1,71 @@
+{% load static %}
+<!doctype html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#047857">
+  <title>Sign in · {{ school.name|default:"School Academic Portal" }}</title>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+</head>
+<body class="min-h-full bg-slate-100 text-slate-950">
+  <main class="grid min-h-screen place-items-center px-4 py-10">
+    <div class="w-full max-w-md space-y-4">
+      <section class="rounded-2xl border border-slate-200 bg-white p-5 text-center shadow-soft">
+        {% if school.logo %}
+          <img src="{{ school.logo.url }}" class="mx-auto h-14 w-14 rounded-xl object-contain" alt="{{ school.name }} logo">
+        {% endif %}
+        <h1 class="font-display text-2xl font-extrabold tracking-tight text-slate-950">Sign in</h1>
+        <p class="mt-1 text-sm font-medium text-slate-500">{{ school.name|default:"School Academic Portal" }}</p>
+      </section>
+
+      <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-soft sm:p-8">
+      {% if form.non_field_errors %}
+        <div class="mt-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700" role="alert">
+          The username or password is incorrect.
+        </div>
+      {% endif %}
+
+      <form method="post" class="mt-6 space-y-5" novalidate>
+        {% csrf_token %}
+        <div>
+          <label class="label" for="{{ form.username.id_for_label }}">Username</label>
+          {{ form.username }}
+          {% for error in form.username.errors %}<p class="mt-1 text-xs text-rose-600">{{ error }}</p>{% endfor %}
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between gap-3">
+            <label class="label" for="{{ form.password.id_for_label }}">Password</label>
+            <a href="{% url 'accounts:password-reset' %}" class="text-xs font-semibold text-brand-700 hover:underline">Forgot password?</a>
+          </div>
+          <div class="relative">
+            {{ form.password }}
+            <button type="button" id="passwordToggle" class="absolute inset-y-0 right-0 mt-1 px-3 text-xs font-semibold text-slate-500" aria-label="Show password">Show</button>
+          </div>
+          {% for error in form.password.errors %}<p class="mt-1 text-xs text-rose-600">{{ error }}</p>{% endfor %}
+        </div>
+
+        <label class="flex cursor-pointer items-center gap-3 text-sm text-slate-600">
+          {{ form.remember_me }}
+          <span>{{ form.remember_me.label }}</span>
+        </label>
+
+        {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+        <button class="btn-primary w-full !py-3">Sign in</button>
+      </form>
+      </section>
+    </div>
+  </main>
+  <script>
+    const input = document.getElementById('{{ form.password.id_for_label }}');
+    const button = document.getElementById('passwordToggle');
+    button.addEventListener('click', () => {
+      const hidden = input.type === 'password';
+      input.type = hidden ? 'text' : 'password';
+      button.textContent = hidden ? 'Hide' : 'Show';
+      button.setAttribute('aria-label', hidden ? 'Hide password' : 'Show password');
+    });
+  </script>
+</body>
+</html>

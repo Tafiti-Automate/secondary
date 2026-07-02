@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Academic portal">
+  <rect width="64" height="64" rx="16" fill="#047857"/>
+  <path d="M0 0h64v4H0z" fill="#fcd116"/>
+  <path d="M48 0h16v4H48z" fill="#d90000"/>
+  <text x="32" y="40" fill="white" font-family="Arial, sans-serif" font-size="23" font-weight="700" text-anchor="middle">AS</text>
+</svg>
