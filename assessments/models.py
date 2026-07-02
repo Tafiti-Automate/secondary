@@ -29,7 +29,32 @@ class Competency(BaseModel):
         return self.name
 
 
+class AssessmentScale(BaseModel):
+    name = models.CharField(max_length=100, unique=True)
+    code = models.CharField(max_length=20, blank=True)
+    description = models.TextField(blank=True)
+    is_default = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def clean(self):
+        if self.is_default and not self.is_active:
+            raise ValidationError({"is_active": "The default achievement scale must be active."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        if self.is_default:
+            AssessmentScale.objects.exclude(pk=self.pk).update(is_default=False)
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
+
+
 class CompetencyLevel(BaseModel):
+    scale = models.ForeignKey(AssessmentScale, related_name="levels", on_delete=models.PROTECT, null=True, blank=True)
     name = models.CharField(max_length=50)
     code = models.CharField(max_length=12, unique=True)
     numeric_value = models.PositiveSmallIntegerField(default=1)
@@ -224,6 +249,7 @@ class AssessmentPolicy(BaseModel):
     class_level = models.ForeignKey(ClassLevel, related_name="assessment_policies", on_delete=models.PROTECT, null=True, blank=True)
     curriculum_stage = models.CharField(max_length=20, choices=[("lower", "Lower Secondary"), ("advanced", "Advanced Secondary")])
     purpose = models.CharField(max_length=20, choices=[("internal", "Internal reporting"), ("uneb", "UNEB preparation")], default="internal")
+    achievement_scale = models.ForeignKey(AssessmentScale, related_name="policies", on_delete=models.PROTECT, null=True, blank=True)
     ongoing_weight = models.DecimalField(max_digits=5, decimal_places=2, default=40, validators=[MinValueValidator(0), MaxValueValidator(100)])
     summative_weight = models.DecimalField(max_digits=5, decimal_places=2, default=60, validators=[MinValueValidator(0), MaxValueValidator(100)])
     summative_frequency = models.CharField(max_length=20, choices=[("termly", "Termly"), ("annual", "Once per year"), ("none", "No separate summative exam")], default="termly")
@@ -277,6 +303,11 @@ class AssessmentType(BaseModel):
 
 class Assessment(BaseModel):
     STATUS_CHOICES = [("draft", "Draft"), ("published", "Published"), ("closed", "Closed"), ("moderated", "Moderated")]
+    PROJECT_TYPE_CHOICES = [
+        ("individual", "Individual project"), ("group", "Group project"),
+        ("class", "Class project"), ("interdisciplinary", "Interdisciplinary project"),
+        ("long_term", "Long-term project"), ("community", "Community project"),
+    ]
     title = models.CharField(max_length=200)
     assessment_type = models.ForeignKey(AssessmentType, related_name="assessments", on_delete=models.PROTECT)
     term = models.ForeignKey(Term, related_name="assessments", on_delete=models.PROTECT)
@@ -288,6 +319,11 @@ class Assessment(BaseModel):
     instructions = models.TextField(blank=True)
     attachment = models.FileField(upload_to="assessments/%Y/", null=True, blank=True)
     max_score = models.DecimalField(max_digits=6, decimal_places=2, default=100, validators=[MinValueValidator(Decimal("0.01"))])
+    weight = models.DecimalField(
+        "reporting weight", max_digits=5, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Optional weight for this task. When blank, the assessment type's default weight is used.",
+    )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="draft")
     topic = models.ForeignKey(CurriculumTopic, related_name="assessments", on_delete=models.SET_NULL, null=True, blank=True)
     activity_of_integration = models.ForeignKey(ActivityOfIntegration, related_name="assessments", on_delete=models.SET_NULL, null=True, blank=True)
@@ -296,6 +332,9 @@ class Assessment(BaseModel):
     assessment_period = models.CharField(max_length=20, choices=[("ongoing", "Ongoing formative"), ("end_topic", "End-of-topic integration"), ("annual", "Annual school summative"), ("end_cycle", "End-of-cycle certification")], default="ongoing")
     evidence_method = models.CharField(max_length=20, choices=[("observation", "Observation"), ("conversation", "Conversation"), ("product", "Product"), ("triangulated", "Triangulated evidence")], default="product")
     is_summative = models.BooleanField(default=False)
+    project_type = models.CharField(max_length=24, choices=PROJECT_TYPE_CHOICES, blank=True)
+    project_supervisor = models.ForeignKey(User, related_name="supervised_projects", on_delete=models.SET_NULL, null=True, blank=True)
+    project_subjects = models.ManyToManyField(Subject, related_name="interdisciplinary_projects", blank=True)
     workflow_status = models.CharField(
         max_length=24,
         choices=[
@@ -324,10 +363,25 @@ class Assessment(BaseModel):
             raise ValidationError("The Activity of Integration must belong to the selected topic.")
         if self.rubric_id and self.max_score != self.rubric.total_marks:
             raise ValidationError({"max_score": "Maximum score must equal the selected rubric total."})
+        if self.project_supervisor_id and self.project_supervisor.role not in {"teacher", "director_of_studies", "headteacher", "super_admin"}:
+            raise ValidationError({"project_supervisor": "Project supervisors must be academic staff."})
+        if (self.project_type or self.project_supervisor_id) and not self.project_enabled:
+            raise ValidationError("Project details can only be added to a project assessment or project Activity of Integration.")
 
     @property
     def marks_entered(self):
         return self.results.filter(is_deleted=False).count()
+
+    @property
+    def effective_weight(self):
+        return self.weight if self.weight is not None else self.assessment_type.weight
+
+    @property
+    def project_enabled(self):
+        return bool(
+            (self.assessment_type_id and self.assessment_type.category == "project")
+            or (self.activity_of_integration_id and self.activity_of_integration.is_project)
+        )
 
     @property
     def is_workflow_locked(self):
@@ -398,6 +452,48 @@ class Assessment(BaseModel):
 
     def __str__(self):
         return self.title
+
+
+class ProjectMilestone(BaseModel):
+    assessment = models.ForeignKey(Assessment, related_name="project_milestones", on_delete=models.CASCADE)
+    title = models.CharField(max_length=180)
+    description = models.TextField(blank=True)
+    expected_evidence = models.TextField(blank=True)
+    due_date = models.DateField(null=True, blank=True)
+    sequence = models.PositiveSmallIntegerField(default=1)
+    status = models.CharField(
+        max_length=16,
+        choices=[("planned", "Planned"), ("open", "Open"), ("closed", "Closed")],
+        default="planned",
+    )
+
+    class Meta:
+        ordering = ["assessment", "sequence", "due_date"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["assessment", "sequence"],
+                condition=Q(is_deleted=False),
+                name="unique_active_project_milestone_sequence",
+            )
+        ]
+
+    def clean(self):
+        if self.assessment_id:
+            if not self.assessment.project_enabled:
+                raise ValidationError({"assessment": "Milestones require a project assessment or project Activity of Integration."})
+            if self.assessment.is_workflow_locked:
+                raise ValidationError("DOS-approved project milestones are read-only.")
+            if self.due_date and self.due_date < self.assessment.assigned_date:
+                raise ValidationError({"due_date": "Milestone due date cannot be before the project is assigned."})
+            if self.due_date and self.assessment.due_date and self.due_date > self.assessment.due_date:
+                raise ValidationError({"due_date": "Milestone due date cannot be after the project deadline."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.assessment} · {self.title}"
 
 
 class AssessmentResult(BaseModel):
@@ -705,7 +801,8 @@ class LearningOutcomeAssessment(BaseModel):
     outcome = models.ForeignKey(LearningOutcome, related_name="student_assessments", on_delete=models.PROTECT)
     term = models.ForeignKey(Term, related_name="learning_outcome_assessments", on_delete=models.PROTECT)
     assessment = models.ForeignKey(Assessment, related_name="learning_outcome_ratings", on_delete=models.CASCADE, null=True, blank=True)
-    level = models.CharField(max_length=24, choices=LEVEL_CHOICES)
+    scale_level = models.ForeignKey(CompetencyLevel, related_name="learning_outcome_assessments", on_delete=models.PROTECT, null=True, blank=True)
+    level = models.CharField(max_length=24, blank=True, help_text="Legacy code snapshot; new ratings use the configured scale level.")
     comment = models.TextField(blank=True)
     assessed_by = models.ForeignKey(User, related_name="assessed_learning_outcomes", on_delete=models.SET_NULL, null=True, blank=True)
     assessed_at = models.DateTimeField(default=timezone.now)
@@ -718,6 +815,8 @@ class LearningOutcomeAssessment(BaseModel):
         ]
 
     def clean(self):
+        if not self.scale_level_id and not self.level:
+            raise ValidationError({"scale_level": "Choose an achievement level."})
         if self.assessment_id:
             if self.assessment.is_workflow_locked:
                 raise ValidationError("DOS-approved learning-outcome ratings are read-only.")
@@ -729,11 +828,19 @@ class LearningOutcomeAssessment(BaseModel):
                 raise ValidationError({"outcome": "Learning outcome must belong to the assessment topic."})
 
     def save(self, *args, **kwargs):
+        if self.scale_level_id:
+            self.level = self.scale_level.code
         self.full_clean()
         return super().save(*args, **kwargs)
 
+    @property
+    def display_level(self):
+        if self.scale_level_id:
+            return self.scale_level.name
+        return dict(self.LEVEL_CHOICES).get(self.level, self.level)
+
     def __str__(self):
-        return f"{self.student} · {self.outcome} · {self.get_level_display()}"
+        return f"{self.student} · {self.outcome} · {self.display_level}"
 
 
 class LearnerSkillRating(BaseModel):
@@ -819,6 +926,7 @@ class PortfolioItem(BaseModel):
     stream = models.ForeignKey(Stream, related_name="portfolio_items", on_delete=models.PROTECT, null=True, blank=True)
     subject = models.ForeignKey(Subject, related_name="portfolio_items", on_delete=models.PROTECT, null=True, blank=True)
     assessment = models.ForeignKey(Assessment, related_name="portfolio_items", on_delete=models.SET_NULL, null=True, blank=True)
+    project_milestone = models.ForeignKey(ProjectMilestone, related_name="portfolio_items", on_delete=models.SET_NULL, null=True, blank=True)
     learning_outcome = models.ForeignKey(LearningOutcome, related_name="portfolio_items", on_delete=models.SET_NULL, null=True, blank=True)
     category = models.CharField(max_length=24, choices=CATEGORY_CHOICES)
     title = models.CharField(max_length=180)
@@ -843,6 +951,11 @@ class PortfolioItem(BaseModel):
                 raise ValidationError({"assessment": "Assessment and portfolio item must belong to the same term."})
             if self.subject_id and self.assessment.subject_id != self.subject_id:
                 raise ValidationError({"subject": "Subject must match the selected assessment."})
+        if self.project_milestone_id:
+            if not self.assessment_id:
+                raise ValidationError({"assessment": "Choose the milestone's project assessment."})
+            elif self.project_milestone.assessment_id != self.assessment_id:
+                raise ValidationError({"project_milestone": "Milestone must belong to the selected assessment."})
         if self.status == "verified" and not self.verified_by_id:
             raise ValidationError({"verified_by": "A verified portfolio item requires a verifier."})
 

@@ -2,10 +2,10 @@ from rest_framework import serializers
 
 from .models import (
     ActivityOfIntegration, Assessment, AssessmentEvidence, AssessmentPolicy, AssessmentResult,
-    AssessmentReview, AssessmentSubmission, AssessmentType, Competency, CompetencyAssessment,
+    AssessmentReview, AssessmentScale, AssessmentSubmission, AssessmentType, Competency, CompetencyAssessment,
     CompetencyIndicator, CompetencyLevel, CurriculumFramework, CurriculumLearningArea,
     CurriculumTopic, CurriculumValue, LearnerSkillRating, LearnerValueRating, LearningOutcome,
-    LearningOutcomeAssessment, LessonPlan, PortfolioItem, Rubric, RubricCriterion, RubricLevel,
+    LearningOutcomeAssessment, LessonPlan, PortfolioItem, ProjectMilestone, Rubric, RubricCriterion, RubricLevel,
     RubricRating, SchemeOfWork, SchemeWeek, Skill, TeacherObservation,
 )
 
@@ -16,6 +16,7 @@ def serializer_for(model, read_only=()):
 
 
 CompetencySerializer = serializer_for(Competency)
+AssessmentScaleSerializer = serializer_for(AssessmentScale)
 CompetencyLevelSerializer = serializer_for(CompetencyLevel)
 CompetencyIndicatorSerializer = serializer_for(CompetencyIndicator)
 AssessmentTypeSerializer = serializer_for(AssessmentType)
@@ -43,5 +44,6 @@ LearningOutcomeAssessmentSerializer = serializer_for(LearningOutcomeAssessment, 
 LearnerSkillRatingSerializer = serializer_for(LearnerSkillRating, ("assessed_by", "assessed_at"))
 LearnerValueRatingSerializer = serializer_for(LearnerValueRating, ("assessed_by", "assessed_at"))
 PortfolioItemSerializer = serializer_for(PortfolioItem, ("uploaded_by", "verified_by", "verified_at"))
+ProjectMilestoneSerializer = serializer_for(ProjectMilestone)
 TeacherObservationSerializer = serializer_for(TeacherObservation, ("observed_by",))
 AssessmentReviewSerializer = serializer_for(AssessmentReview, ("reviewer", "reviewed_at"))

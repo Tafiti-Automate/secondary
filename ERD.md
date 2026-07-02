@@ -19,9 +19,13 @@ erDiagram
     GUARDIAN ||--o{ STUDENT_GUARDIAN : linked_to
     STUDENT ||--o{ STUDENT_PROMOTION : progresses
     ASSESSMENT_TYPE ||--o{ ASSESSMENT : classifies
+    ASSESSMENT_SCALE ||--o{ COMPETENCY_LEVEL : defines
+    ASSESSMENT_SCALE ||--o{ ASSESSMENT_POLICY : selected_by
     SUBJECT ||--o{ ASSESSMENT : assesses
     STREAM ||--o{ ASSESSMENT : assigned_to
     ASSESSMENT ||--o{ ASSESSMENT_RESULT : produces
+    ASSESSMENT ||--o{ PROJECT_MILESTONE : plans
+    PROJECT_MILESTONE ||--o{ PORTFOLIO_ITEM : evidenced_by
     STUDENT ||--o{ ASSESSMENT_RESULT : receives
     COMPETENCY ||--o{ COMPETENCY_INDICATOR : described_by
     ASSESSMENT ||--o{ COMPETENCY_ASSESSMENT : evidences

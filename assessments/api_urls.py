@@ -2,22 +2,24 @@ from rest_framework.routers import DefaultRouter
 
 from .api import (
     ActivityOfIntegrationViewSet, AssessmentEvidenceViewSet, AssessmentPolicyViewSet,
-    AssessmentResultViewSet, AssessmentReviewViewSet, AssessmentTypeViewSet, AssessmentViewSet,
+    AssessmentResultViewSet, AssessmentReviewViewSet, AssessmentScaleViewSet, AssessmentTypeViewSet, AssessmentViewSet,
     CompetencyAssessmentViewSet, CompetencyIndicatorViewSet, CompetencyLevelViewSet,
     CompetencyViewSet, CurriculumFrameworkViewSet, CurriculumLearningAreaViewSet,
     CurriculumTopicViewSet, CurriculumValueViewSet, LearnerSkillRatingViewSet,
     LearnerValueRatingViewSet, LearningOutcomeAssessmentViewSet, LearningOutcomeViewSet,
-    LessonPlanViewSet, PortfolioItemViewSet, RubricCriterionViewSet, RubricLevelViewSet,
+    LessonPlanViewSet, PortfolioItemViewSet, ProjectMilestoneViewSet, RubricCriterionViewSet, RubricLevelViewSet,
     RubricRatingViewSet, RubricViewSet, SchemeOfWorkViewSet, SchemeWeekViewSet,
     SkillViewSet, SubmissionViewSet, TeacherObservationViewSet,
 )
 
 router = DefaultRouter()
 router.register("competencies", CompetencyViewSet, basename="competency")
+router.register("achievement-scales", AssessmentScaleViewSet, basename="achievement-scale")
 router.register("competency-levels", CompetencyLevelViewSet, basename="competency-level")
 router.register("competency-indicators", CompetencyIndicatorViewSet, basename="competency-indicator")
 router.register("assessment-types", AssessmentTypeViewSet, basename="assessment-type")
 router.register("assessments", AssessmentViewSet, basename="assessment")
+router.register("project-milestones", ProjectMilestoneViewSet, basename="project-milestone")
 router.register("results", AssessmentResultViewSet, basename="assessment-result")
 router.register("competency-assessments", CompetencyAssessmentViewSet, basename="competency-assessment")
 router.register("submissions", SubmissionViewSet, basename="submission")

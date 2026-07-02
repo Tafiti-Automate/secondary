@@ -90,7 +90,7 @@ def build_report_pdf_bytes(card):
     competency_text = rating_text(card.competency_ratings.filter(is_deleted=False).select_related("competency", "level"), lambda x: x.competency.name, lambda x: x.level.name)
     skill_text = rating_text(card.skill_ratings.filter(is_deleted=False).select_related("skill", "level"), lambda x: x.skill.name, lambda x: x.level.name)
     value_text = rating_text(card.value_ratings.filter(is_deleted=False).select_related("value", "level"), lambda x: x.value.name, lambda x: x.level.name)
-    outcome_text = rating_text(card.learning_outcome_ratings.filter(is_deleted=False).select_related("outcome"), lambda x: x.outcome.statement, lambda x: x.get_level_display())
+    outcome_text = rating_text(card.learning_outcome_ratings.filter(is_deleted=False).select_related("outcome", "scale_level"), lambda x: x.outcome.statement, lambda x: x.display_level)
     evidence = Table([[competency_text, skill_text], [value_text, outcome_text]], colWidths=[83 * mm, 83 * mm])
     evidence.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#cbd5e1")), ("VALIGN", (0, 0), (-1, -1), "TOP"), ("PADDING", (0, 0), (-1, -1), 5)]))
     story.extend([evidence, Paragraph("Portfolio", styles["Section"]), Paragraph(escape(card.portfolio_summary or "No verified portfolio evidence for this term."), styles["Small"])])

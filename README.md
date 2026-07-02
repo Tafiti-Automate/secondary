@@ -7,10 +7,11 @@ A complete, role-aware academic platform for Uganda lower-secondary CBC (S1–S4
 - Role dashboards for Super Administrator, Headteacher, Director of Studies, Teacher, Parent, and Student
 - Student admission numbers, learner profiles, guardians, enrolment and promotion history
 - Academic years, terms, S1–S6 classes, streams, departments, subjects, combinations and teacher allocations
-- The eight CBC competencies, configurable proficiency scales and subject/class indicators
+- The six NCDC generic skills, named configurable achievement scales and subject/class indicators
 - Curriculum learning areas, outcome criteria, suggested activities and required evidence
 - HOD-approved schemes of work, weekly plans and lesson plans linked to teacher allocations
-- Exercises, tests, assignments, projects, practical work, presentations, group work and coursework
+- Exercises, tests, assignments, projects, practical work, presentations, group work and coursework with per-task weights
+- Individual, group, class, interdisciplinary, long-term and community projects with supervisors, milestones, evidence and reflections
 - Separate learner outcome, practical-skill and value ratings, teacher observations and S1–S4 portfolios
 - Weighted continuous assessment, assignment files/submissions and bulk mark entry
 - HOD → DOS assessment moderation with immutable DOS-approved learner evidence

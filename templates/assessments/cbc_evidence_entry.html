@@ -40,11 +40,7 @@
           <td class="border-r border-slate-100 px-3 py-3 last:border-r-0 dark:border-slate-700">
             <select class="form-control !mt-0 min-w-48" name="rating_{{ row.student.pk }}_{{ cell.item.pk }}" {% if locked %}disabled{% endif %}>
               <option value="">Not yet evidenced</option>
-              {% if active_section == 'outcomes' %}
-                {% for value,label in level_choices %}<option value="{{ value }}" {% if cell.rating.level == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
-              {% else %}
-                {% for level in levels %}<option value="{{ level.pk }}" {% if cell.rating.level_id == level.pk %}selected{% endif %}>{{ level.name }}</option>{% endfor %}
-              {% endif %}
+              {% for level in levels %}<option value="{{ level.pk }}" {% if active_section == 'outcomes' and cell.rating.scale_level_id == level.pk or active_section != 'outcomes' and cell.rating.level_id == level.pk %}selected{% endif %}>{{ level.name }}</option>{% endfor %}
             </select>
           </td>
           {% endfor %}

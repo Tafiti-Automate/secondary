@@ -1,11 +1,10 @@
-from collections import defaultdict
 from decimal import Decimal
 
 from .models import AssessmentResult
 
 
 def continuous_assessment_score(student, subject, term, stream=None):
-    """Return a weighted CA score out of 100 using type averages."""
+    """Return a weighted CA score out of 100 using each task's configured weight."""
     results = AssessmentResult.objects.filter(
         student=student,
         assessment__subject=subject,
@@ -16,16 +15,15 @@ def continuous_assessment_score(student, subject, term, stream=None):
     ).select_related("assessment__assessment_type")
     if stream:
         results = results.filter(assessment__stream=stream)
-    grouped = defaultdict(list)
-    weights = {}
+    weighted_scores = []
     for result in results:
-        assessment_type = result.assessment.assessment_type
-        grouped[assessment_type.pk].append(result.percentage)
-        weights[assessment_type.pk] = Decimal(assessment_type.weight)
-    if not grouped:
+        weight = Decimal(result.assessment.effective_weight)
+        if weight > 0:
+            weighted_scores.append((result.percentage, weight))
+    if not weighted_scores:
         return Decimal("0.00")
-    total_weight = sum(weights.values())
+    total_weight = sum((weight for _, weight in weighted_scores), Decimal("0"))
     if total_weight <= 0:
         return Decimal("0.00")
-    weighted = sum((sum(scores) / len(scores)) * weights[key] for key, scores in grouped.items())
+    weighted = sum((score * weight for score, weight in weighted_scores), Decimal("0"))
     return (weighted / total_weight).quantize(Decimal("0.01"))

@@ -21,8 +21,8 @@ from config.tables import ModelTableView
 from students.models import Student
 from academics.models import ClassLevel, Subject, SubjectAllocation, Term
 from communications.services import queue_notification
-from .forms import ActivityOfIntegrationForm, AssessmentEvidenceForm, AssessmentForm, AssessmentPolicyForm, AssessmentTypeForm, CompetencyForm, CompetencyIndicatorForm, CompetencyLevelForm, CurriculumFrameworkForm, CurriculumImportForm, CurriculumTopicForm, CurriculumValueForm, LearningOutcomeForm, LessonPlanForm, PortfolioItemForm, RubricCriterionForm, RubricForm, RubricLevelForm, SchemeOfWorkForm, SchemeWeekForm, SubmissionForm, TeacherObservationForm
-from .models import ActivityOfIntegration, Assessment, AssessmentEvidence, AssessmentPolicy, AssessmentResult, AssessmentSubmission, AssessmentType, Competency, CompetencyAssessment, CompetencyIndicator, CompetencyLevel, CurriculumFramework, CurriculumLearningArea, CurriculumTopic, CurriculumValue, LearnerSkillRating, LearnerValueRating, LearningOutcome, LearningOutcomeAssessment, LessonPlan, PortfolioItem, Rubric, RubricCriterion, RubricLevel, RubricRating, SchemeOfWork, SchemeWeek, Skill, TeacherObservation
+from .forms import ActivityOfIntegrationForm, AssessmentEvidenceForm, AssessmentForm, AssessmentPolicyForm, AssessmentScaleForm, AssessmentTypeForm, CompetencyForm, CompetencyIndicatorForm, CompetencyLevelForm, CurriculumFrameworkForm, CurriculumImportForm, CurriculumTopicForm, CurriculumValueForm, LearningOutcomeForm, LessonPlanForm, PortfolioItemForm, ProjectMilestoneForm, RubricCriterionForm, RubricForm, RubricLevelForm, SchemeOfWorkForm, SchemeWeekForm, SubmissionForm, TeacherObservationForm
+from .models import ActivityOfIntegration, Assessment, AssessmentEvidence, AssessmentPolicy, AssessmentResult, AssessmentScale, AssessmentSubmission, AssessmentType, Competency, CompetencyAssessment, CompetencyIndicator, CompetencyLevel, CurriculumFramework, CurriculumLearningArea, CurriculumTopic, CurriculumValue, LearnerSkillRating, LearnerValueRating, LearningOutcome, LearningOutcomeAssessment, LessonPlan, PortfolioItem, ProjectMilestone, Rubric, RubricCriterion, RubricLevel, RubricRating, SchemeOfWork, SchemeWeek, Skill, TeacherObservation
 
 
 def teacher_assessments(user):
@@ -60,9 +60,24 @@ def teacher_can_record_for(user, student, term=None, subject=None):
     return allocations.exists()
 
 
+def achievement_levels_for(assessment):
+    policy = AssessmentPolicy.objects.filter(
+        academic_year=assessment.term.academic_year,
+        class_level=assessment.stream.class_level,
+        purpose="internal",
+        is_active=True,
+        is_deleted=False,
+    ).select_related("achievement_scale").first()
+    scale = policy.achievement_scale if policy and policy.achievement_scale_id else AssessmentScale.objects.filter(
+        is_default=True, is_active=True, is_deleted=False,
+    ).first()
+    levels = CompetencyLevel.objects.filter(is_deleted=False)
+    return levels.filter(scale=scale) if scale else levels
+
+
 def visible_portfolio_items(user):
     qs = PortfolioItem.objects.filter(is_deleted=False).select_related(
-        "student__stream__class_level", "term", "subject", "assessment", "learning_outcome",
+        "student__stream__class_level", "term", "subject", "assessment", "project_milestone", "learning_outcome",
         "uploaded_by", "verified_by",
     )
     if user.is_superuser or user.role in ACADEMIC_MANAGERS:
@@ -118,6 +133,9 @@ def scope_portfolio_form(form, user):
         if student and student.stream_id:
             form.fields["term"].queryset = Term.objects.filter(academic_year=student.stream.academic_year, is_deleted=False)
             form.fields["assessment"].queryset = Assessment.objects.filter(stream=student.stream, status="published", is_deleted=False)
+            form.fields["project_milestone"].queryset = ProjectMilestone.objects.filter(
+                assessment__stream=student.stream, assessment__status="published", is_deleted=False,
+            )
             form.fields["subject"].queryset = Subject.objects.filter(
                 Q(allocations__stream=student.stream) | Q(student_registrations__enrollment__student=student, student_registrations__status="active"),
                 is_deleted=False,
@@ -133,6 +151,9 @@ def scope_portfolio_form(form, user):
         form.fields["term"].queryset = Term.objects.filter(Q(subject_allocations__in=allocations) | Q(academic_year__streams__class_teacher=user), is_deleted=False).distinct()
         form.fields["subject"].queryset = Subject.objects.filter(Q(allocations__in=allocations) | Q(department__head=user), is_deleted=False).distinct()
         form.fields["assessment"].queryset = teacher_assessments(user)
+        form.fields["project_milestone"].queryset = ProjectMilestone.objects.filter(
+            assessment__in=form.fields["assessment"].queryset, is_deleted=False,
+        )
         form.fields["learning_outcome"].queryset = LearningOutcome.objects.filter(topic__subject__in=form.fields["subject"].queryset, is_deleted=False).distinct()
         return form
 
@@ -140,6 +161,7 @@ def scope_portfolio_form(form, user):
     form.fields["term"].queryset = Term.objects.filter(is_deleted=False)
     form.fields["subject"].queryset = Subject.objects.filter(is_deleted=False, is_active=True)
     form.fields["assessment"].queryset = Assessment.objects.filter(is_deleted=False)
+    form.fields["project_milestone"].queryset = ProjectMilestone.objects.filter(is_deleted=False)
     form.fields["learning_outcome"].queryset = LearningOutcome.objects.filter(is_deleted=False)
     return form
 
@@ -219,7 +241,37 @@ class AssessmentDetailView(AcademicStaffRequiredMixin, DetailView):
             or self.request.user.role in ACADEMIC_MANAGERS
             or (department and department.head_id == self.request.user.pk)
         )
+        context["project_milestones"] = self.object.project_milestones.filter(is_deleted=False).prefetch_related("portfolio_items")
         return context
+
+
+class ProjectMilestoneCreateView(AcademicStaffRequiredMixin, CreateView):
+    model = ProjectMilestone
+    form_class = ProjectMilestoneForm
+    template_name = "shared/form.html"
+    extra_context = {
+        "page_title": "Add project milestone",
+        "eyebrow": "Project planning",
+        "submit_label": "Save milestone",
+    }
+
+    def dispatch(self, request, *args, **kwargs):
+        self.assessment = get_object_or_404(teacher_assessments(request.user), pk=kwargs["pk"])
+        if not self.assessment.project_enabled:
+            raise Http404
+        if self.assessment.is_workflow_locked:
+            raise PermissionDenied("DOS-approved project plans are read-only.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def form_valid(self, form):
+        form.instance.assessment = self.assessment
+        response = super().form_valid(form)
+        record_audit(self.request, "project_milestone_create", self.object, f"Added milestone to {self.assessment.title}")
+        messages.success(self.request, "Project milestone added.")
+        return response
+
+    def get_success_url(self):
+        return reverse("assessments:detail", args=[self.assessment.pk])
 
 
 class AssessmentWorkflowView(AcademicStaffRequiredMixin, View):
@@ -299,7 +351,7 @@ class CompetencyEntryView(AcademicStaffRequiredMixin, View):
         assessment = self.get_assessment(request, pk)
         students = Student.objects.filter(stream=assessment.stream, is_deleted=False, is_active=True)
         competencies = Competency.objects.filter(is_deleted=False, is_active=True)
-        levels = CompetencyLevel.objects.filter(is_deleted=False)
+        levels = achievement_levels_for(assessment)
         existing = {(x.student_id, x.competency_id): x for x in CompetencyAssessment.objects.filter(assessment=assessment, is_deleted=False)}
         rows = [{"student": student, "ratings": [{"competency": competency, "rating": existing.get((student.pk, competency.pk))} for competency in competencies]} for student in students]
         return render(request, self.template_name, {"assessment": assessment, "rows": rows, "levels": levels})
@@ -312,7 +364,7 @@ class CompetencyEntryView(AcademicStaffRequiredMixin, View):
             return redirect("assessments:detail", pk=pk)
         students = Student.objects.filter(stream=assessment.stream, is_deleted=False, is_active=True)
         competencies = Competency.objects.filter(is_deleted=False, is_active=True)
-        levels = {str(x.pk): x for x in CompetencyLevel.objects.filter(is_deleted=False)}
+        levels = {str(x.pk): x for x in achievement_levels_for(assessment)}
         saved = 0
         for student in students:
             for competency in competencies:
@@ -343,15 +395,19 @@ class CBCEvidenceEntryView(AcademicStaffRequiredMixin, View):
             outcomes = assessment.topic.learning_outcomes.filter(is_deleted=False).order_by("display_order", "pk")
         skills = Skill.objects.filter(is_deleted=False, is_active=True).order_by("display_order", "name")
         linked_value_ids = outcomes.values_list("values__pk", flat=True)
-        values = CurriculumValue.objects.filter(is_deleted=False, is_assessed=True)
+        values = CurriculumValue.objects.filter(is_deleted=False)
         if any(linked_value_ids):
             values = values.filter(pk__in=linked_value_ids)
         return outcomes, skills, values.order_by("display_order", "name")
 
+    @staticmethod
+    def achievement_levels(assessment):
+        return achievement_levels_for(assessment)
+
     def build_context(self, request, assessment, section):
         students = list(Student.objects.filter(stream=assessment.stream, is_deleted=False, is_active=True).order_by("first_name", "last_name"))
         outcomes, skills, values = self.evidence_items(assessment)
-        levels = list(CompetencyLevel.objects.filter(is_deleted=False).order_by("display_order", "numeric_value"))
+        levels = list(self.achievement_levels(assessment).order_by("display_order", "numeric_value"))
         context = {
             "assessment": assessment,
             "active_section": section,
@@ -364,7 +420,6 @@ class CBCEvidenceEntryView(AcademicStaffRequiredMixin, View):
             existing = {(item.student_id, item.outcome_id): item for item in LearningOutcomeAssessment.objects.filter(assessment=assessment, is_deleted=False)}
             context["rows"] = [{"student": student, "ratings": [{"item": item, "rating": existing.get((student.pk, item.pk))} for item in items]} for student in students]
             context["items"] = items
-            context["level_choices"] = LearningOutcomeAssessment.LEVEL_CHOICES
         elif section == "skills":
             items = list(skills)
             existing = {(item.student_id, item.skill_id): item for item in LearnerSkillRating.objects.filter(assessment=assessment, is_deleted=False).select_related("level")}
@@ -397,26 +452,27 @@ class CBCEvidenceEntryView(AcademicStaffRequiredMixin, View):
         saved = cleared = 0
         now = timezone.now()
         if section == "outcomes":
-            valid_levels = dict(LearningOutcomeAssessment.LEVEL_CHOICES)
+            level_map = {str(level.pk): level for level in self.achievement_levels(assessment)}
             for student in students:
                 for outcome in outcomes:
-                    value = request.POST.get(f"rating_{student.pk}_{outcome.pk}", "")
+                    level = level_map.get(request.POST.get(f"rating_{student.pk}_{outcome.pk}", ""))
                     existing = LearningOutcomeAssessment.objects.filter(assessment=assessment, student=student, outcome=outcome, is_deleted=False).first()
-                    if value in valid_levels:
+                    if level:
                         if existing:
-                            existing.level, existing.assessed_by, existing.assessed_at = value, request.user, now
-                            existing.save(update_fields=["level", "assessed_by", "assessed_at", "updated_at"])
+                            existing.scale_level, existing.level = level, level.code
+                            existing.assessed_by, existing.assessed_at = request.user, now
+                            existing.save(update_fields=["scale_level", "level", "assessed_by", "assessed_at", "updated_at"])
                         else:
                             LearningOutcomeAssessment.objects.create(
                                 assessment=assessment, student=student, outcome=outcome,
-                                term=assessment.term, level=value, assessed_by=request.user,
+                                term=assessment.term, scale_level=level, assessed_by=request.user,
                             )
                         saved += 1
                     elif existing:
                         existing.soft_delete()
                         cleared += 1
         else:
-            level_map = {str(level.pk): level for level in CompetencyLevel.objects.filter(is_deleted=False)}
+            level_map = {str(level.pk): level for level in self.achievement_levels(assessment)}
             item_list = skills if section == "skills" else values
             model = LearnerSkillRating if section == "skills" else LearnerValueRating
             item_field = "skill" if section == "skills" else "value"
@@ -550,7 +606,7 @@ class PortfolioItemCreateView(LoginRequiredMixin, PortfolioFormScopeMixin, Creat
         initial.update({
             "student": self.request.GET.get("student"), "term": self.request.GET.get("term"),
             "subject": self.request.GET.get("subject"), "assessment": self.request.GET.get("assessment"),
-            "learning_outcome": self.request.GET.get("outcome"),
+            "project_milestone": self.request.GET.get("milestone"), "learning_outcome": self.request.GET.get("outcome"),
         })
         if self.request.user.role == "student" and hasattr(self.request.user, "student_profile"):
             initial["student"] = self.request.user.student_profile.pk

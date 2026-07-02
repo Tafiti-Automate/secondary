@@ -11,7 +11,7 @@ django.setup()
 
 from accounts.models import User
 from academics.models import AcademicYear, CalendarEvent, ClassLevel, Department, SchoolProfile, Stream, Subject, SubjectAllocation, SubjectCombination, Term
-from assessments.models import ActivityOfIntegration, Assessment, AssessmentEvidence, AssessmentPolicy, AssessmentResult, AssessmentType, Competency, CompetencyAssessment, CompetencyLevel, CurriculumFramework, CurriculumLearningArea, CurriculumTopic, CurriculumValue, LearnerSkillRating, LearnerValueRating, LearningOutcome, LearningOutcomeAssessment, PortfolioItem, Rubric, RubricCriterion, RubricLevel, Skill, TeacherObservation
+from assessments.models import ActivityOfIntegration, Assessment, AssessmentEvidence, AssessmentPolicy, AssessmentResult, AssessmentScale, AssessmentType, Competency, CompetencyAssessment, CompetencyLevel, CurriculumFramework, CurriculumLearningArea, CurriculumTopic, CurriculumValue, LearnerSkillRating, LearnerValueRating, LearningOutcome, LearningOutcomeAssessment, PortfolioItem, ProjectMilestone, Rubric, RubricCriterion, RubricLevel, Skill, TeacherObservation
 from attendance.models import AttendanceRecord, AttendanceSession
 from communications.models import Announcement, LearningResource, Notification
 from exams.models import ExamSession, Examination, ExaminationResult, GradeBoundary, GradeScale, UNEBCandidate, UNEBCandidateSubject, UNEBContinuousAssessment
@@ -28,6 +28,25 @@ def user(username, role, first, last, password):
         account.set_password(password)
     account.save()
     return account
+
+
+def subject_allocation(teacher, subject, stream, term, lessons_per_week):
+    matches = list(SubjectAllocation.objects.filter(
+        subject=subject, stream=stream, term=term, is_deleted=False,
+    ).order_by("pk"))
+    allocation = matches[0] if matches else None
+    for duplicate in matches[1:]:
+        duplicate.soft_delete()
+    if allocation is None:
+        return SubjectAllocation.objects.create(
+            teacher=teacher, subject=subject, stream=stream, term=term,
+            lessons_per_week=lessons_per_week, is_active=True,
+        )
+    allocation.teacher = teacher
+    allocation.lessons_per_week = lessons_per_week
+    allocation.is_active = True
+    allocation.save()
+    return allocation
 
 
 admin = user("admin", "super_admin", "System", "Administrator", "Admin@2026")
@@ -92,7 +111,7 @@ for name, code, department, subject_type, curriculum in subject_specs:
 pcm, _ = SubjectCombination.objects.update_or_create(code="PCM", defaults={"name": "Physics, Chemistry and Mathematics", "curriculum_level": "upper", "description": "Upper-secondary science combination"})
 pcm.subjects.set([subjects["PHY"], subjects["CHE"], subjects["MTC"]])
 for code in ["ENG", "MTC", "GSC", "GEO", "ICT"]:
-    SubjectAllocation.objects.update_or_create(teacher=teacher, subject=subjects[code], stream=streams[1], term=term, defaults={"lessons_per_week": 5 if code in {"ENG", "MTC"} else 3})
+    subject_allocation(teacher, subjects[code], streams[1], term, 5 if code in {"ENG", "MTC"} else 3)
 
 guardian, _ = Guardian.objects.update_or_create(user=parent_user, defaults={"first_name": "Peter", "last_name": "Kato", "phone": "+256 772 123456", "email": "parent@school.test", "occupation": "Civil engineer", "address": "Kira, Wakiso"})
 student = Student.objects.filter(first_name="Amina", last_name="Nabirye").first()
@@ -114,9 +133,16 @@ competencies = []
 for order, name in enumerate(competency_names, 1):
     item, _ = Competency.objects.update_or_create(name=name, defaults={"code": f"GS{order}", "description": f"Integrated generic skill evidenced through subject learning outcomes: {name.lower()}.", "display_order": order, "scale": [], "assessment_mode": "integrated", "curriculum_stage": "both", "is_active": True})
     competencies.append(item)
+achievement_scale, _ = AssessmentScale.objects.update_or_create(
+    name="School proficiency scale",
+    defaults={
+        "code": "PROF-4", "description": "Configurable demonstration scale for outcomes, generic skills, practical skills and observed values.",
+        "is_default": True, "is_active": True,
+    },
+)
 levels = []
 for order, (name, code, value, colour) in enumerate([("Beginning", "BEG", 1, "#f59e0b"), ("Developing", "DEV", 2, "#3b82f6"), ("Proficient", "PRO", 3, "#10b981"), ("Exemplary", "EXC", 4, "#8b5cf6")], 1):
-    item, _ = CompetencyLevel.objects.update_or_create(code=code, defaults={"name": name, "numeric_value": value, "display_order": order, "colour": colour})
+    item, _ = CompetencyLevel.objects.update_or_create(code=code, defaults={"scale": achievement_scale, "name": name, "numeric_value": value, "display_order": order, "colour": colour})
     levels.append(item)
 
 lower_framework, _ = CurriculumFramework.objects.update_or_create(name="Lower Secondary Curriculum", stage="lower", defaults={"version": "NLSC", "implementation_year": 2020, "description": "NCDC competency-based Lower Secondary Curriculum organised around subject learning outcomes, generic skills and Activities of Integration."})
@@ -124,7 +150,7 @@ advanced_framework, _ = CurriculumFramework.objects.update_or_create(name="Align
 value_names = ["Respect for Humanity and Environment", "Honesty", "Justice and Fairness", "Hard Work for Self-reliance", "Integrity", "Creativity and Innovativeness", "Social Responsibility", "Social Harmony", "National Unity", "National Consciousness and Patriotism"]
 values = []
 for order, name in enumerate(value_names, 1):
-    value, _ = CurriculumValue.objects.update_or_create(name=name, defaults={"display_order": order, "is_assessed": True})
+    value, _ = CurriculumValue.objects.update_or_create(name=name, defaults={"display_order": order, "is_assessed": False})
     values.append(value)
 for order, name in enumerate(["Research Skills", "Presentation Skills", "ICT Skills", "Leadership", "Practical Skills", "Entrepreneurship", "Communication Skills"], 1):
     Skill.objects.update_or_create(name=name, defaults={"code": f"SK{order}", "display_order": order, "is_active": True})
@@ -145,15 +171,33 @@ for order, (name, maximum) in enumerate(criterion_specs, 1):
     for level_order, (level_name, fraction, descriptor) in enumerate(level_specs, 1):
         RubricLevel.objects.update_or_create(criterion=criterion, name=level_name, defaults={"score": Decimal(str(maximum)) * Decimal(str(fraction)), "descriptor": descriptor, "display_order": level_order})
 
-lower_policy, _ = AssessmentPolicy.objects.update_or_create(name="S1 Internal Progress Policy 2026", academic_year=year, class_level=classes[1], defaults={"curriculum_stage": "lower", "purpose": "internal", "ongoing_weight": 40, "summative_weight": 60, "summative_frequency": "termly", "show_class_position": True, "requires_complete_marks": True, "notes": "Demonstration internal school policy; not a claim of UNEB weighting."})
+lower_policy, _ = AssessmentPolicy.objects.update_or_create(name="S1 Internal Progress Policy 2026", academic_year=year, class_level=classes[1], defaults={"curriculum_stage": "lower", "purpose": "internal", "achievement_scale": achievement_scale, "ongoing_weight": 40, "summative_weight": 60, "summative_frequency": "termly", "show_class_position": True, "requires_complete_marks": True, "notes": "Demonstration internal school policy; not a claim of UNEB weighting."})
+AssessmentPolicy.objects.update_or_create(
+    name="S4 UCE certification reference 2026", academic_year=year, class_level=classes[4],
+    defaults={
+        "curriculum_stage": "lower", "purpose": "uneb", "achievement_scale": achievement_scale,
+        "ongoing_weight": 20, "summative_weight": 80, "summative_frequency": "annual",
+        "show_class_position": False, "requires_complete_marks": True,
+        "notes": "Current NCDC final-certification split. Verify the year's UNEB circular, instruments and upload template before submission.",
+    },
+)
 for level in (5, 6):
-    AssessmentPolicy.objects.update_or_create(name=f"S{level} Aligned Advanced Internal Policy 2026", academic_year=year, class_level=classes[level], defaults={"curriculum_stage": "advanced", "purpose": "internal", "ongoing_weight": 40, "summative_weight": 60, "summative_frequency": "annual", "show_class_position": False, "requires_complete_marks": True, "notes": "One school-based summative assessment annually; ongoing evidence comes from learning activities."})
+    AssessmentPolicy.objects.update_or_create(name=f"S{level} Aligned Advanced Internal Policy 2026", academic_year=year, class_level=classes[level], defaults={"curriculum_stage": "advanced", "purpose": "internal", "achievement_scale": achievement_scale, "ongoing_weight": 40, "summative_weight": 60, "summative_frequency": "annual", "show_class_position": False, "requires_complete_marks": True, "notes": "One school-based summative assessment annually; ongoing evidence comes from learning activities."})
 
 assessment_types = {}
 for category, name, weight in [("exercise", "Class Exercise", 10), ("test", "Topic Test", 20), ("assignment", "Assignment", 10), ("project", "Project", 15), ("practical", "Practical Work", 15), ("presentation", "Presentation", 10), ("group", "Group Work", 10), ("coursework", "Coursework", 10)]:
     assessment_types[category], _ = AssessmentType.objects.update_or_create(category=category, name=name, defaults={"code": category[:3].upper(), "weight": weight})
-assessment, _ = Assessment.objects.update_or_create(title="Communication Skills Project", term=term, subject=subjects["ENG"], stream=streams[1], defaults={"assessment_type": assessment_types["project"], "created_by": teacher, "assigned_date": date(2026, 6, 15), "due_date": date(2026, 7, 10), "max_score": 50, "status": "published", "instructions": "Prepare and present a short community story in a group.", "topic": topic, "activity_of_integration": activity, "rubric": rubric, "assessment_period": "end_topic", "evidence_method": "triangulated"})
+assessment, _ = Assessment.objects.update_or_create(title="Communication Skills Project", term=term, subject=subjects["ENG"], stream=streams[1], defaults={"assessment_type": assessment_types["project"], "created_by": teacher, "assigned_date": date(2026, 6, 15), "due_date": date(2026, 7, 10), "max_score": 50, "weight": 25, "status": "published", "instructions": "Prepare and present a short community story in a group.", "topic": topic, "activity_of_integration": activity, "rubric": rubric, "assessment_period": "end_topic", "evidence_method": "triangulated", "project_type": "group", "project_supervisor": teacher})
 assessment.learning_outcomes.set([outcome])
+for sequence, (title, due, evidence) in enumerate([
+    ("Plan and identify a community source", date(2026, 6, 19), "Interview plan and agreed roles"),
+    ("Gather and organise the story", date(2026, 6, 30), "Interview notes and first draft"),
+    ("Present and reflect", date(2026, 7, 10), "Final story, presentation evidence and learner reflection"),
+], 1):
+    ProjectMilestone.objects.update_or_create(
+        assessment=assessment, sequence=sequence,
+        defaults={"title": title, "due_date": due, "expected_evidence": evidence, "status": "open"},
+    )
 AssessmentResult.objects.update_or_create(assessment=assessment, student=student, defaults={"score": Decimal("42"), "feedback": "Clear ideas and confident delivery.", "marked_by": teacher})
 for index, competency in enumerate(competencies[:4]):
     CompetencyAssessment.objects.update_or_create(assessment=assessment, student=student, competency=competency, defaults={"scale_level": levels[2 if index < 3 else 3], "assessed_by": teacher, "comment": "Demonstrated during the group project."})
@@ -171,11 +215,6 @@ AttendanceRecord.objects.update_or_create(session=attendance_session, student=st
 for order, (name, start, end, slot_type) in enumerate([("Period 1", time(8, 0), time(8, 40), "lesson"), ("Period 2", time(8, 40), time(9, 20), "lesson"), ("Break", time(9, 20), time(9, 50), "break"), ("Period 3", time(9, 50), time(10, 30), "lesson"), ("Period 4", time(10, 30), time(11, 10), "lesson")], 1):
     TimeSlot.objects.update_or_create(name=name, defaults={"start_time": start, "end_time": end, "slot_type": slot_type, "display_order": order})
 room, _ = Room.objects.update_or_create(name="S1 A Classroom", defaults={"code": "A1", "capacity": 60})
-lesson_slots = list(TimeSlot.objects.filter(slot_type="lesson", is_deleted=False).order_by("display_order"))
-for day in range(1, 6):
-    for index, slot in enumerate(lesson_slots[:3]):
-        subject = subjects[["ENG", "MTC", "GSC"][index]]
-        TimetableEntry.objects.update_or_create(term=term, stream=streams[1], day_of_week=day, time_slot=slot, defaults={"subject": subject, "teacher": teacher, "room": room})
 
 CalendarEvent.objects.update_or_create(term=term, title="Term II End-of-Term Examinations", defaults={"category": "exam", "start_date": date(2026, 8, 3), "end_date": date(2026, 8, 14), "description": "End-of-term assessment period."})
 Announcement.objects.update_or_create(title="Welcome to the academic portal", defaults={"body": "Students and parents can now follow timetables, assignments, attendance and published report cards from one secure workspace.", "audience": "all", "is_pinned": True, "created_by": dos})
@@ -185,7 +224,7 @@ s4_student, _ = Student.objects.update_or_create(first_name="Brian", last_name="
 s4_enrollment, _ = Enrollment.objects.update_or_create(student=s4_student, academic_year=year, defaults={"stream": streams[4], "roll_number": 1})
 for code in ["ENG", "MTC", "BIO", "CHE", "PHY", "GEO", "ICT"]:
     StudentSubjectRegistration.objects.update_or_create(enrollment=s4_enrollment, subject=subjects[code], defaults={"category": "core", "status": "active"})
-SubjectAllocation.objects.update_or_create(teacher=teacher, subject=subjects["ENG"], stream=streams[4], term=term, defaults={"lessons_per_week": 5})
+subject_allocation(teacher, subjects["ENG"], streams[4], term, 5)
 candidate, _ = UNEBCandidate.objects.update_or_create(student=s4_student, examination_level="uce", examination_year=2026, defaults={"index_number": "U9999/001", "centre_number": "U9999", "candidate_name": s4_student.full_name.upper(), "gender": s4_student.gender, "status": "registered", "verified_by": dos})
 candidate_subject, _ = UNEBCandidateSubject.objects.update_or_create(candidate=candidate, subject=subjects["ENG"], defaults={"subject_code": subjects["ENG"].uneb_code or subjects["ENG"].code, "category": "core"})
 UNEBContinuousAssessment.objects.update_or_create(candidate_subject=candidate_subject, class_level=classes[4], term=term, component="activity_integration", defaults={"raw_score": 76, "maximum_score": 100, "evidence_reference": "S4-ENG-T2-AOI-001", "status": "approved", "entered_by": teacher, "verified_by": dos, "approved_by": headteacher})
@@ -223,9 +262,9 @@ core_subject_codes = list(teacher_by_subject)
 for school_term in (term_one, term):
     for demo_stream in demo_streams:
         for code, assigned_teacher in teacher_by_subject.items():
-            SubjectAllocation.objects.update_or_create(
-                subject=subjects[code], stream=demo_stream, term=school_term, is_deleted=False,
-                defaults={"teacher": assigned_teacher, "lessons_per_week": 5 if code in {"ENG", "MTC"} else 3, "is_active": True},
+            subject_allocation(
+                assigned_teacher, subjects[code], demo_stream, school_term,
+                5 if code in {"ENG", "MTC"} else 3,
             )
 
 student_specs = [
@@ -366,10 +405,11 @@ for term_index, school_term in enumerate((term_one, term), 1):
             )
             assessment_item.learning_outcomes.set([outcome_item])
             assessment_by_key[(school_term.number, demo_stream.pk, code)] = assessment_item
+            examination_title = f"{demo_stream} {subjects[code].name} {school_term.name} examination"
             examination, _ = Examination.objects.update_or_create(
-                session=exam_sessions[school_term.number], term=school_term, subject=subjects[code], stream=demo_stream,
+                title=examination_title, session=exam_sessions[school_term.number], term=school_term,
+                subject=subjects[code], stream=demo_stream,
                 defaults={
-                    "title": f"{demo_stream} {subjects[code].name} {school_term.name} examination",
                     "exam_date": school_term.end_date - timedelta(days=12 - subject_index),
                     "start_time": time(8 + (subject_index % 3), 0), "duration_minutes": 120,
                     "max_score": 100, "status": "published", "created_by": teacher_by_subject[code],
@@ -446,12 +486,11 @@ skill_items = list(Skill.objects.filter(is_deleted=False, is_active=True).order_
 for learner_index, learner in enumerate(demo_students):
     english_assessment = assessment_by_key[(2, learner.stream_id, "ENG")]
     science_assessment = assessment_by_key[(2, learner.stream_id, "GSC")]
-    outcome_level = ["exceeded", "met", "met", "approaching", "needs_support"][learner_index % 5]
     for subject_index, code in enumerate(core_subject_codes):
         assessment_item = assessment_by_key[(2, learner.stream_id, code)]
         LearningOutcomeAssessment.objects.update_or_create(
             assessment=assessment_item, student=learner, outcome=subject_outcomes[(2, code)],
-            defaults={"term": term, "level": ["met", "exceeded", "approaching", outcome_level][(learner_index + subject_index) % 4], "assessed_by": teacher_by_subject[code]},
+            defaults={"term": term, "scale_level": levels[(learner_index + subject_index) % len(levels)], "assessed_by": teacher_by_subject[code]},
         )
     for competency_index, competency in enumerate(competencies[:4]):
         CompetencyAssessment.objects.update_or_create(

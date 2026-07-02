@@ -103,10 +103,8 @@ class ReportCompetencyRating(BaseModel):
 class ReportLearningOutcomeRating(BaseModel):
     report_card = models.ForeignKey(ReportCard, related_name="learning_outcome_ratings", on_delete=models.CASCADE)
     outcome = models.ForeignKey(LearningOutcome, related_name="report_ratings", on_delete=models.PROTECT)
-    level = models.CharField(max_length=24, choices=[
-        ("exceeded", "Exceeded expectation"), ("met", "Met expectation"),
-        ("approaching", "Approaching expectation"), ("needs_support", "Needs support"),
-    ])
+    scale_level = models.ForeignKey(CompetencyLevel, related_name="report_learning_outcome_ratings", on_delete=models.PROTECT, null=True, blank=True)
+    level = models.CharField(max_length=24, blank=True)
     comment = models.CharField(max_length=180, blank=True)
 
     class Meta:
@@ -114,7 +112,14 @@ class ReportLearningOutcomeRating(BaseModel):
         constraints = [models.UniqueConstraint(fields=["report_card", "outcome"], condition=Q(is_deleted=False), name="unique_active_report_learning_outcome")]
 
     def __str__(self):
-        return f"{self.report_card.student} · {self.outcome} · {self.get_level_display()}"
+        return f"{self.report_card.student} · {self.outcome} · {self.display_level}"
+
+    @property
+    def display_level(self):
+        if self.scale_level_id:
+            return self.scale_level.name
+        legacy = dict(LearningOutcomeAssessment.LEVEL_CHOICES)
+        return legacy.get(self.level, self.level)
 
 
 class ReportSkillRating(BaseModel):

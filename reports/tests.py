@@ -6,7 +6,7 @@ from django.core.exceptions import ValidationError
 
 from academics.models import AcademicYear, ClassLevel, Department, Stream, Subject, SubjectAllocation, Term
 from assessments.models import (
-    Assessment, AssessmentPolicy, AssessmentResult, AssessmentType, CompetencyLevel,
+    Assessment, AssessmentPolicy, AssessmentResult, AssessmentScale, AssessmentType, CompetencyLevel,
     CurriculumFramework, CurriculumTopic, CurriculumValue, LearnerSkillRating,
     LearnerValueRating, LearningOutcome, LearningOutcomeAssessment, PortfolioItem, Skill,
 )
@@ -70,9 +70,11 @@ class CompetencyReportTests(TestCase):
         subject = Subject.objects.create(name="Agriculture", code="AGR", curriculum_level="lower", department=Department.objects.create(name="Agriculture"))
         SubjectAllocation.objects.create(teacher=teacher, subject=subject, stream=stream, term=term)
         student = Student.objects.create(first_name="Lydia", last_name="Auma", gender="female", date_of_birth=date(2012, 1, 1), stream=stream)
+        scale = AssessmentScale.objects.create(name="Report scale", code="REPORT", is_default=True)
+        proficiency = CompetencyLevel.objects.create(scale=scale, name="Proficient", code="PRO-REPORT", numeric_value=3)
         policy = AssessmentPolicy.objects.create(
             name="CBC evidence", academic_year=year, class_level=level, curriculum_stage="lower",
-            ongoing_weight=100, summative_weight=0, summative_frequency="none",
+            achievement_scale=scale, ongoing_weight=100, summative_weight=0, summative_frequency="none",
         )
         kind = AssessmentType.objects.create(name="Project", category="project", weight=100)
         assessment = Assessment.objects.create(title="Garden project", assessment_type=kind, term=term, subject=subject, stream=stream, status="published")
@@ -80,8 +82,7 @@ class CompetencyReportTests(TestCase):
         framework = CurriculumFramework.objects.create(name="Lower 2029", stage="lower")
         topic = CurriculumTopic.objects.create(framework=framework, subject=subject, class_level=level, term_number=1, title="Soil", sequence=1)
         outcome = LearningOutcome.objects.create(topic=topic, statement="Select suitable soil for a crop.")
-        LearningOutcomeAssessment.objects.create(student=student, outcome=outcome, term=term, assessment=assessment, level="met", assessed_by=teacher)
-        proficiency = CompetencyLevel.objects.create(name="Proficient", code="PRO-REPORT", numeric_value=3)
+        LearningOutcomeAssessment.objects.create(student=student, outcome=outcome, term=term, assessment=assessment, scale_level=proficiency, assessed_by=teacher)
         skill = Skill.objects.create(name="Research Skills")
         value = CurriculumValue.objects.create(name="Responsibility", is_assessed=True)
         LearnerSkillRating.objects.create(student=student, skill=skill, term=term, subject=subject, assessment=assessment, level=proficiency, assessed_by=teacher)
@@ -90,7 +91,7 @@ class CompetencyReportTests(TestCase):
 
         card = generate_report_card(student, term, teacher, policy)
 
-        self.assertEqual(card.learning_outcome_ratings.get().level, "met")
+        self.assertEqual(card.learning_outcome_ratings.get().scale_level, proficiency)
         self.assertEqual(card.skill_ratings.get().skill, skill)
         self.assertEqual(card.value_ratings.get().value, value)
         self.assertIn("Project: 1", card.portfolio_summary)

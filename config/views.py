@@ -122,10 +122,13 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         )
         outcome_rows = list(
             LearningOutcomeAssessment.objects.filter(term=term, is_deleted=False)
-            .values("level").annotate(total=Count("id")).order_by("level")
+            .values("scale_level__name", "level").annotate(total=Count("id")).order_by("scale_level__numeric_value", "level")
         ) if term else []
-        outcome_totals = {item["level"]: item["total"] for item in outcome_rows}
-        outcome_achievement = [{"level": key, "total": outcome_totals[key]} for key in ("exceeded", "met", "approaching", "needs_support") if key in outcome_totals]
+        legacy_outcome_labels = dict(LearningOutcomeAssessment.LEVEL_CHOICES)
+        outcome_achievement = [
+            {"level": item["scale_level__name"] or legacy_outcome_labels.get(item["level"], item["level"]), "total": item["total"]}
+            for item in outcome_rows
+        ]
         competency_trends = list(
             CompetencyAssessment.objects.filter(assessment__term=term, scale_level__isnull=False, is_deleted=False)
             .values("competency__name")
@@ -152,7 +155,6 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         attendance_change = current_attendance_rate - previous_attendance_rate if current_attendance_rate is not None and previous_attendance_rate is not None else None
         subject_performance = cached["performance"]
         status_labels = dict(AttendanceRecord.STATUS_CHOICES)
-        outcome_labels = dict(LearningOutcomeAssessment.LEVEL_CHOICES)
         workflow_labels = dict(Assessment._meta.get_field("workflow_status").choices)
         dashboard_charts = {
             "performance_history": {
@@ -191,7 +193,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             },
             "outcome_distribution": {
                 "type": "doughnut",
-                "labels": [outcome_labels.get(item["level"], item["level"].replace("_", " ").title()) for item in outcome_achievement],
+                "labels": [item["level"] for item in outcome_achievement],
                 "datasets": [{"label": "Ratings", "data": [item["total"] for item in outcome_achievement], "colors": ["#8b5cf6", "#10b981", "#f59e0b", "#f43f5e"]}],
             },
             "competencies": {
@@ -241,7 +243,12 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             "recent_exams": Examination.objects.filter(term=term, is_deleted=False).select_related("subject", "stream")[:6] if term else [],
             "at_risk_students": Student.objects.filter(attendance_records__session__term=term, attendance_records__status="absent", attendance_records__is_deleted=False).annotate(absences=Count("attendance_records")).filter(absences__gte=3).order_by("-absences")[:6] if term else [],
             "most_improved": improvement[:6],
-            "learners_needing_support": Student.objects.filter(learning_outcome_assessments__term=term, learning_outcome_assessments__level="needs_support", learning_outcome_assessments__is_deleted=False).annotate(support_count=Count("learning_outcome_assessments")).order_by("-support_count")[:6] if term else [],
+            "learners_needing_support": Student.objects.filter(
+                Q(learning_outcome_assessments__scale_level__numeric_value=1)
+                | Q(learning_outcome_assessments__scale_level__isnull=True, learning_outcome_assessments__level="needs_support"),
+                learning_outcome_assessments__term=term,
+                learning_outcome_assessments__is_deleted=False,
+            ).annotate(support_count=Count("learning_outcome_assessments")).order_by("-support_count")[:6] if term else [],
             "outcome_achievement": outcome_achievement,
             "competency_trends": competency_trends,
             "teacher_workload": teacher_workload,
@@ -328,12 +335,14 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         attendance_states = [{"status": key, "total": attendance_totals[key]} for key in ("present", "absent", "late", "excused", "sick") if key in attendance_totals]
         outcome_rows = list(
             LearningOutcomeAssessment.objects.filter(student=student, term=term, is_deleted=False)
-            .values("level").annotate(total=Count("id")).order_by("level")
+            .values("scale_level__name", "level").annotate(total=Count("id")).order_by("scale_level__numeric_value", "level")
         ) if term else []
-        outcome_totals = {item["level"]: item["total"] for item in outcome_rows}
-        outcome_states = [{"level": key, "total": outcome_totals[key]} for key in ("exceeded", "met", "approaching", "needs_support") if key in outcome_totals]
+        legacy_outcome_labels = dict(LearningOutcomeAssessment.LEVEL_CHOICES)
+        outcome_states = [
+            {"level": item["scale_level__name"] or legacy_outcome_labels.get(item["level"], item["level"]), "total": item["total"]}
+            for item in outcome_rows
+        ]
         status_labels = dict(AttendanceRecord.STATUS_CHOICES)
-        outcome_labels = dict(LearningOutcomeAssessment.LEVEL_CHOICES)
         dashboard_charts = {
             "student_history": {
                 "type": "line",
@@ -354,7 +363,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             },
             "student_outcomes": {
                 "type": "doughnut",
-                "labels": [outcome_labels.get(item["level"], item["level"].replace("_", " ").title()) for item in outcome_states],
+                "labels": [item["level"] for item in outcome_states],
                 "datasets": [{"label": "Outcomes", "data": [item["total"] for item in outcome_states], "colors": ["#8b5cf6", "#10b981", "#f59e0b", "#f43f5e"]}],
             },
         }

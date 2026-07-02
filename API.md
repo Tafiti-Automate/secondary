@@ -17,7 +17,7 @@ Access tokens include `role` and `name` claims. Unsafe operations are restricted
 | `/api/accounts/` | current user and manager-only user administration |
 | `/api/academics/` | school profile, years, terms, departments, classes, streams, subjects, combinations, allocations, calendar |
 | `/api/students/` | students, guardians, guardian links, enrolments, promotions |
-| `/api/assessments/` | curriculum learning areas/topics/outcomes, schemes, weekly plans, lessons, assessments, moderation, outcome/competency/skill/value ratings, portfolios and observations |
+| `/api/assessments/` | curriculum learning areas/topics/outcomes, named achievement scales, schemes, weekly plans, lessons, weighted assessments, project milestones, moderation, outcome/competency/skill/value ratings, portfolios and observations |
 | `/api/exams/` | grade scales, sessions, examinations, S5–S6 weighted assessment plans/components, processed results, UNEB records and workflow transitions |
 | `/api/attendance/` | attendance sessions, student records and teacher attendance |
 | `/api/timetables/` | rooms, time slots and scoped timetable entries |

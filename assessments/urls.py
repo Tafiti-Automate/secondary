@@ -1,8 +1,8 @@
 from django.urls import path, reverse_lazy
 
-from .forms import ActivityOfIntegrationForm, AssessmentPolicyForm, AssessmentTypeForm, CompetencyForm, CompetencyIndicatorForm, CompetencyLevelForm, CurriculumFrameworkForm, CurriculumLearningAreaForm, CurriculumTopicForm, CurriculumValueForm, LearningOutcomeForm, RubricCriterionForm, RubricForm, RubricLevelForm, SkillForm
-from .models import ActivityOfIntegration, AssessmentPolicy, AssessmentType, Competency, CompetencyIndicator, CompetencyLevel, CurriculumFramework, CurriculumLearningArea, CurriculumTopic, CurriculumValue, LearningOutcome, Rubric, RubricCriterion, RubricLevel, Skill
-from .views import ActivityDetailView, AssessmentCreateView, AssessmentDeleteView, AssessmentDetailView, AssessmentListView, AssessmentUpdateView, AssessmentWorkflowView, CBCEvidenceEntryView, CompetencyEntryView, CurriculumImportTemplateView, CurriculumImportView, CurriculumOverviewView, EvidenceCreateView, LessonPlanCreateView, MarkEntryView, PortfolioItemCreateView, PortfolioItemDetailView, PortfolioItemUpdateView, PortfolioListView, PortfolioWorkflowView, RubricEntryView, SchemeCreateView, SchemeDetailView, SchemeWeekCreateView, SchemeWorkflowView, SetupCreateView, SetupTableView, SetupUpdateView, SubmissionCreateView, TeacherObservationCreateView, TeachingPlanOverviewView
+from .forms import ActivityOfIntegrationForm, AssessmentPolicyForm, AssessmentScaleForm, AssessmentTypeForm, CompetencyForm, CompetencyIndicatorForm, CompetencyLevelForm, CurriculumFrameworkForm, CurriculumLearningAreaForm, CurriculumTopicForm, CurriculumValueForm, LearningOutcomeForm, RubricCriterionForm, RubricForm, RubricLevelForm, SkillForm
+from .models import ActivityOfIntegration, AssessmentPolicy, AssessmentScale, AssessmentType, Competency, CompetencyIndicator, CompetencyLevel, CurriculumFramework, CurriculumLearningArea, CurriculumTopic, CurriculumValue, LearningOutcome, Rubric, RubricCriterion, RubricLevel, Skill
+from .views import ActivityDetailView, AssessmentCreateView, AssessmentDeleteView, AssessmentDetailView, AssessmentListView, AssessmentUpdateView, AssessmentWorkflowView, CBCEvidenceEntryView, CompetencyEntryView, CurriculumImportTemplateView, CurriculumImportView, CurriculumOverviewView, EvidenceCreateView, LessonPlanCreateView, MarkEntryView, PortfolioItemCreateView, PortfolioItemDetailView, PortfolioItemUpdateView, PortfolioListView, PortfolioWorkflowView, ProjectMilestoneCreateView, RubricEntryView, SchemeCreateView, SchemeDetailView, SchemeWeekCreateView, SchemeWorkflowView, SetupCreateView, SetupTableView, SetupUpdateView, SubmissionCreateView, TeacherObservationCreateView, TeachingPlanOverviewView
 
 app_name = "assessments"
 
@@ -17,6 +17,7 @@ urlpatterns = [
     path("<int:pk>/competencies/", CompetencyEntryView.as_view(), name="competencies"),
     path("<int:pk>/cbc-evidence/", CBCEvidenceEntryView.as_view(), name="cbc-evidence"),
     path("<int:pk>/rubric/", RubricEntryView.as_view(), name="rubric-entry"),
+    path("<int:pk>/project-milestones/add/", ProjectMilestoneCreateView.as_view(), name="project-milestone-add"),
     path("<int:pk>/submit/", SubmissionCreateView.as_view(), name="submit"),
     path("evidence/add/", EvidenceCreateView.as_view(), name="evidence-add"),
     path("observations/add/", TeacherObservationCreateView.as_view(), name="observation-add"),
@@ -39,8 +40,9 @@ urlpatterns = [
 
 SETUP = {
     "types": (AssessmentType, AssessmentTypeForm, ("Name", "Category", "Weight", "Active"), ("name", "get_category_display", "weight", "is_active"), "Assessment types"),
+    "achievement-scales": (AssessmentScale, AssessmentScaleForm, ("Scale", "Code", "Default", "Active"), ("name", "code", "is_default", "is_active"), "Achievement scales"),
     "competency-framework": (Competency, CompetencyForm, ("Competency", "Code", "Order", "Active"), ("name", "code", "display_order", "is_active"), "CBC competencies"),
-    "competency-levels": (CompetencyLevel, CompetencyLevelForm, ("Level", "Code", "Value", "Order"), ("name", "code", "numeric_value", "display_order"), "Competency scale"),
+    "competency-levels": (CompetencyLevel, CompetencyLevelForm, ("Scale", "Level", "Code", "Value", "Order"), ("scale", "name", "code", "numeric_value", "display_order"), "Achievement levels"),
     "competency-indicators": (CompetencyIndicator, CompetencyIndicatorForm, ("Indicator", "Competency", "Subject", "Class"), ("statement", "competency", "subject", "class_level"), "Competency indicators"),
     "frameworks": (CurriculumFramework, CurriculumFrameworkForm, ("Framework", "Stage", "Version", "Implementation", "Active"), ("name", "get_stage_display", "version", "implementation_year", "is_active"), "Curriculum frameworks"),
     "curriculum-values": (CurriculumValue, CurriculumValueForm, ("Value", "Order", "Separately assessed"), ("name", "display_order", "is_assessed"), "Curriculum values"),

@@ -12,21 +12,21 @@ from config.mixins import ACADEMIC_MANAGERS
 from config.permissions import IsReadOnlyOrAcademicManager, IsReadOnlyOrAcademicStaff
 from .models import (
     ActivityOfIntegration, Assessment, AssessmentEvidence, AssessmentPolicy, AssessmentResult,
-    AssessmentReview, AssessmentSubmission, AssessmentType, Competency, CompetencyAssessment,
+    AssessmentReview, AssessmentScale, AssessmentSubmission, AssessmentType, Competency, CompetencyAssessment,
     CompetencyIndicator, CompetencyLevel, CurriculumFramework, CurriculumLearningArea,
     CurriculumTopic, CurriculumValue, LearnerSkillRating, LearnerValueRating, LearningOutcome,
-    LearningOutcomeAssessment, LessonPlan, PortfolioItem, Rubric, RubricCriterion, RubricLevel,
+    LearningOutcomeAssessment, LessonPlan, PortfolioItem, ProjectMilestone, Rubric, RubricCriterion, RubricLevel,
     RubricRating, SchemeOfWork, SchemeWeek, Skill, TeacherObservation,
 )
 from .serializers import (
     ActivityOfIntegrationSerializer, AssessmentEvidenceSerializer, AssessmentPolicySerializer,
     AssessmentResultSerializer, AssessmentReviewSerializer, AssessmentSerializer,
-    AssessmentSubmissionSerializer, AssessmentTypeSerializer, CompetencyAssessmentSerializer,
+    AssessmentScaleSerializer, AssessmentSubmissionSerializer, AssessmentTypeSerializer, CompetencyAssessmentSerializer,
     CompetencyIndicatorSerializer, CompetencyLevelSerializer, CompetencySerializer,
     CurriculumFrameworkSerializer, CurriculumLearningAreaSerializer, CurriculumTopicSerializer,
     CurriculumValueSerializer, LearnerSkillRatingSerializer, LearnerValueRatingSerializer,
     LearningOutcomeAssessmentSerializer, LearningOutcomeSerializer, LessonPlanSerializer,
-    PortfolioItemSerializer, RubricCriterionSerializer, RubricLevelSerializer,
+    PortfolioItemSerializer, ProjectMilestoneSerializer, RubricCriterionSerializer, RubricLevelSerializer,
     RubricRatingSerializer, RubricSerializer, SchemeOfWorkSerializer, SchemeWeekSerializer,
     SkillSerializer, TeacherObservationSerializer,
 )
@@ -47,10 +47,11 @@ def viewset_for(model, serializer):
 
 
 CompetencyViewSet = viewset_for(Competency, CompetencySerializer)
+AssessmentScaleViewSet = viewset_for(AssessmentScale, AssessmentScaleSerializer)
 CompetencyLevelViewSet = viewset_for(CompetencyLevel, CompetencyLevelSerializer)
 CompetencyIndicatorViewSet = viewset_for(CompetencyIndicator, CompetencyIndicatorSerializer)
 AssessmentTypeViewSet = viewset_for(AssessmentType, AssessmentTypeSerializer)
-for setup_viewset in (CompetencyViewSet, CompetencyLevelViewSet, CompetencyIndicatorViewSet, AssessmentTypeViewSet):
+for setup_viewset in (AssessmentScaleViewSet, CompetencyViewSet, CompetencyLevelViewSet, CompetencyIndicatorViewSet, AssessmentTypeViewSet):
     setup_viewset.permission_classes = [IsReadOnlyOrAcademicManager]
 
 CurriculumFrameworkViewSet = viewset_for(CurriculumFramework, CurriculumFrameworkSerializer)
@@ -342,6 +343,52 @@ class AssessmentViewSet(BaseViewSet):
             detail = exc.message_dict if hasattr(exc, "message_dict") else exc.messages
             return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST)
         return Response(self.get_serializer(assessment).data)
+
+
+class ProjectMilestoneViewSet(BaseViewSet):
+    queryset = ProjectMilestone.objects.all()
+    serializer_class = ProjectMilestoneSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset().select_related("assessment__subject", "assessment__stream", "assessment__term")
+        user = self.request.user
+        if user.is_superuser or user.role in ACADEMIC_MANAGERS:
+            return qs
+        if user.role == "teacher":
+            allocation = SubjectAllocation.objects.filter(
+                teacher=user,
+                subject_id=OuterRef("assessment__subject_id"),
+                stream_id=OuterRef("assessment__stream_id"),
+                term_id=OuterRef("assessment__term_id"),
+                is_deleted=False,
+                is_active=True,
+            )
+            return qs.annotate(is_allocated=Exists(allocation)).filter(is_allocated=True)
+        if user.role == "student":
+            return qs.filter(assessment__stream__students__user=user, assessment__status="published")
+        if user.role == "parent":
+            return qs.filter(assessment__stream__students__guardian_links__guardian__user=user, assessment__status="published").distinct()
+        return qs.none()
+
+    def perform_create(self, serializer):
+        assessment = serializer.validated_data["assessment"]
+        if assessment.is_workflow_locked:
+            raise APIValidationError("DOS-approved project plans are read-only.")
+        if self.request.user.role == "teacher" and not SubjectAllocation.objects.filter(
+            teacher=self.request.user,
+            subject=assessment.subject,
+            stream=assessment.stream,
+            term=assessment.term,
+            is_deleted=False,
+            is_active=True,
+        ).exists():
+            raise PermissionDenied("You may only plan milestones for your assigned projects.")
+        serializer.save()
+
+    def perform_update(self, serializer):
+        if serializer.instance.assessment.is_workflow_locked:
+            raise APIValidationError("DOS-approved project plans are read-only.")
+        serializer.save()
 
 
 class AssessmentResultViewSet(BaseViewSet):

@@ -15,6 +15,9 @@ This document records the curriculum assumptions enforced by the software. It is
 7. **Missing is not zero.** A report result with absent required evidence has a null final score plus a reason. It receives no grade and blocks report publication until complete.
 8. **Moderation is auditable.** Lower-secondary assessments move through teacher submission, HOD review and DOS approval. Approval records the reviewer and time and makes learner evidence read-only until an academic manager explicitly reopens it.
 9. **Portfolios continue across classes.** Portfolio items belong to the learner and term, retain their class/subject context, and are not replaced during promotion.
+10. **Achievement scales are school-configurable.** A named scale owns its ordered levels and can be selected by an assessment policy. Learning outcomes, generic skills, practical skills and observed values use those records; no national `1/2/3` or `Basic/Satisfactory/Excellent` algorithm is hardcoded.
+11. **Every learning task can carry its own weight.** The assessment type supplies only a default. A teacher can override the weight on an AoI, practical, presentation or project, and continuous-assessment processing normalises the actual task weights instead of averaging every task in a category equally.
+12. **Projects retain their learning process.** Project records distinguish individual, group, class, interdisciplinary, long-term and community work; assign a supervisor; define ordered milestones; and link milestone evidence to the learner portfolio and reflection workflow.
 
 Authoritative curriculum references:
 
@@ -27,11 +30,16 @@ Authoritative curriculum references:
 
 The system stores UCE/UACE candidate identity, centre/index number, candidate subjects, subject achievement, Activity of Integration, project/coursework records, evidence references, and draft → verified → approved → exported status. Approved records can be downloaded in an auditable workbook whose contents are hashed and retained as an export batch.
 
+NCDC states that Lower Secondary final certification comprises `20%` school-based assessment from S3–S4 and `80%` end-of-cycle assessment. The software records that as a versioned UNEB-preparation policy; it does not incorrectly reuse the certification split as every school's term-report formula. Current UNEB guidance also confirms that subject CA and S3 project scores are required for UCE registration/certification, while the current circular, instrument and upload template remain the authority for exactly what a school submits in a given cycle.
+
 This does **not** claim direct UNEB submission compatibility. UNEB may revise deadlines, subject codes, upload templates, and e-registration requirements. Before each examination cycle, an authorised school officer must compare the export with the current UNEB circular/template and use UNEB's authorised submission channel.
 
 Authoritative examination references:
 
 - [UNEB 2026 registration guidance and CA/project record reminder](https://uneb.ac.ug/2026/06/01/uneb-normal-registration-extended-to-30th-june-2026/)
+- [NCDC teacher-support summary of the 20% school-based / 80% end-of-cycle certification split](https://ncdc.go.ug/wp-content/uploads/2025/04/Understanding-the-curriculum-materials-1.pdf)
+- [UNEB circular on handling S3/S4 Continuous Assessment in 2026](https://uneb.ac.ug/2026/02/27/circular-on-handling-of-continuous-assessment-for-s-3-s-4-2026/)
+- [UNEB S3 project theme for 2026](https://uneb.ac.ug/2026/02/18/project-theme-for-s-3-2026/)
 - [UNEB official website and current circulars](https://uneb.ac.ug/)
 
 ## School go-live validation

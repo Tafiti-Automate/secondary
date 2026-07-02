@@ -3,10 +3,10 @@ from django import forms
 from config.forms import StyledModelForm
 from .models import (
     ActivityOfIntegration, Assessment, AssessmentEvidence, AssessmentPolicy,
-    AssessmentSubmission, AssessmentType, Competency, CompetencyIndicator,
+    AssessmentScale, AssessmentSubmission, AssessmentType, Competency, CompetencyIndicator,
     CompetencyLevel, CurriculumFramework, CurriculumLearningArea, CurriculumTopic,
     CurriculumValue, LearningOutcome, LessonPlan, PortfolioItem, Rubric,
-    RubricCriterion, RubricLevel, SchemeOfWork, SchemeWeek, Skill,
+    ProjectMilestone, RubricCriterion, RubricLevel, SchemeOfWork, SchemeWeek, Skill,
     TeacherObservation,
 )
 
@@ -17,10 +17,16 @@ class CompetencyForm(StyledModelForm):
         fields = ("name", "code", "description", "display_order", "is_active")
 
 
+class AssessmentScaleForm(StyledModelForm):
+    class Meta:
+        model = AssessmentScale
+        fields = ("name", "code", "description", "is_default", "is_active")
+
+
 class CompetencyLevelForm(StyledModelForm):
     class Meta:
         model = CompetencyLevel
-        fields = ("name", "code", "numeric_value", "description", "colour", "display_order")
+        fields = ("scale", "name", "code", "numeric_value", "description", "colour", "display_order")
 
 
 class CompetencyIndicatorForm(StyledModelForm):
@@ -38,7 +44,19 @@ class AssessmentTypeForm(StyledModelForm):
 class AssessmentForm(StyledModelForm):
     class Meta:
         model = Assessment
-        fields = ("title", "assessment_type", "term", "subject", "stream", "topic", "activity_of_integration", "learning_outcomes", "rubric", "assessment_period", "evidence_method", "is_summative", "assigned_date", "due_date", "instructions", "attachment", "max_score", "status")
+        fields = (
+            "title", "assessment_type", "term", "subject", "stream", "topic",
+            "activity_of_integration", "learning_outcomes", "rubric", "assessment_period",
+            "evidence_method", "is_summative", "assigned_date", "due_date", "instructions",
+            "attachment", "max_score", "weight", "status", "project_type",
+            "project_supervisor", "project_subjects",
+        )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["project_supervisor"].queryset = self.fields["project_supervisor"].queryset.filter(
+            role__in=("teacher", "director_of_studies", "headteacher", "super_admin"), is_active=True,
+        )
 
 
 class SubmissionForm(StyledModelForm):
@@ -113,7 +131,7 @@ class RubricLevelForm(StyledModelForm):
 class AssessmentPolicyForm(StyledModelForm):
     class Meta:
         model = AssessmentPolicy
-        fields = ("name", "academic_year", "class_level", "curriculum_stage", "purpose", "ongoing_weight", "summative_weight", "summative_frequency", "show_class_position", "requires_complete_marks", "notes", "is_active")
+        fields = ("name", "academic_year", "class_level", "curriculum_stage", "purpose", "achievement_scale", "ongoing_weight", "summative_weight", "summative_frequency", "show_class_position", "requires_complete_marks", "notes", "is_active")
 
 
 class AssessmentEvidenceForm(StyledModelForm):
@@ -126,7 +144,7 @@ class PortfolioItemForm(StyledModelForm):
     class Meta:
         model = PortfolioItem
         fields = (
-            "student", "term", "subject", "assessment", "learning_outcome", "category",
+            "student", "term", "subject", "assessment", "project_milestone", "learning_outcome", "category",
             "title", "description", "attachment", "external_url", "reflection_notes",
         )
         widgets = {
@@ -146,14 +164,27 @@ class PortfolioItemForm(StyledModelForm):
         term = cleaned.get("term")
         subject = cleaned.get("subject")
         assessment = cleaned.get("assessment")
+        milestone = cleaned.get("project_milestone")
         outcome = cleaned.get("learning_outcome")
         if student and term and student.stream_id and student.stream.academic_year_id != term.academic_year_id:
             self.add_error("term", "Choose a term from the learner's current academic year.")
         if assessment and student and assessment.stream_id != student.stream_id:
             self.add_error("assessment", "The assessment does not belong to this learner's stream.")
+        if milestone and assessment and milestone.assessment_id != assessment.pk:
+            self.add_error("project_milestone", "The milestone does not belong to the selected assessment.")
         if outcome and subject and outcome.topic.subject_id != subject.pk:
             self.add_error("learning_outcome", "The learning outcome does not belong to the selected subject.")
         return cleaned
+
+
+class ProjectMilestoneForm(StyledModelForm):
+    class Meta:
+        model = ProjectMilestone
+        fields = ("title", "description", "expected_evidence", "due_date", "sequence", "status")
+        widgets = {
+            "description": forms.Textarea(attrs={"rows": 3}),
+            "expected_evidence": forms.Textarea(attrs={"rows": 3}),
+        }
 
 
 class TeacherObservationForm(StyledModelForm):

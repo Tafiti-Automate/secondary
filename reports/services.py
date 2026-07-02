@@ -122,7 +122,12 @@ def generate_report_card(student, term, user, policy=None):
         ReportLearningOutcomeRating.objects.update_or_create(
             report_card=card,
             outcome=latest.outcome,
-            defaults={"level": latest.level, "comment": latest.comment[:180], "is_deleted": False},
+            defaults={
+                "scale_level": latest.scale_level,
+                "level": latest.level,
+                "comment": latest.comment[:180],
+                "is_deleted": False,
+            },
         )
 
     skill_ids = LearnerSkillRating.objects.filter(student=student, term=term, is_deleted=False).values_list("skill_id", flat=True).distinct()

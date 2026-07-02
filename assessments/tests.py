@@ -10,10 +10,10 @@ from academics.models import AcademicYear, ClassLevel, Department, Stream, Subje
 from accounts.models import User
 from students.models import Student
 from .models import (
-    Assessment, AssessmentPolicy, AssessmentResult, AssessmentType, CompetencyLevel,
+    Assessment, AssessmentPolicy, AssessmentResult, AssessmentScale, AssessmentType, CompetencyLevel,
     CurriculumFramework, CurriculumTopic, CurriculumValue, LearnerSkillRating,
     LearnerValueRating, LearningOutcome, LearningOutcomeAssessment, LessonPlan,
-    PortfolioItem, SchemeOfWork, SchemeWeek, Skill, TeacherObservation,
+    PortfolioItem, ProjectMilestone, SchemeOfWork, SchemeWeek, Skill, TeacherObservation,
 )
 from .services import continuous_assessment_score
 
@@ -38,6 +38,18 @@ class AssessmentTests(TestCase):
     def test_weighted_score_uses_percentages(self):
         AssessmentResult.objects.create(assessment=self.assessment, student=self.student, score=40)
         self.assertEqual(continuous_assessment_score(self.student, self.subject, self.term), Decimal("80.00"))
+
+    def test_each_assessment_can_override_the_type_weight(self):
+        self.assessment.weight = 20
+        self.assessment.save()
+        AssessmentResult.objects.create(assessment=self.assessment, student=self.student, score=40)
+        second = Assessment.objects.create(
+            title="High-weight presentation", assessment_type=self.kind, term=self.term,
+            subject=self.subject, stream=self.stream, max_score=100, weight=80,
+            status="published", created_by=self.teacher,
+        )
+        AssessmentResult.objects.create(assessment=second, student=self.student, score=100)
+        self.assertEqual(continuous_assessment_score(self.student, self.subject, self.term), Decimal("96.00"))
 
     def test_unallocated_teacher_cannot_see_assessment_api(self):
         other_teacher = User.objects.create_user("other", role="teacher")
@@ -135,7 +147,8 @@ class CBCEvidencePortalTests(TestCase):
         self.outcome = LearningOutcome.objects.create(topic=topic, statement="Classify living things accurately.", assessment_criteria="Uses observable features")
         self.outcome.values.add(self.value)
         self.skill = Skill.objects.create(name="Observation skill")
-        self.level_rating = CompetencyLevel.objects.create(name="Proficient", code="P", numeric_value=3)
+        self.scale = AssessmentScale.objects.create(name="CBC school scale", code="CBC-4", is_default=True)
+        self.level_rating = CompetencyLevel.objects.create(scale=self.scale, name="Proficient", code="P", numeric_value=3)
         kind = AssessmentType.objects.create(name="Field observation", category="fieldwork", weight=20)
         self.assessment = Assessment.objects.create(
             title="School garden survey", assessment_type=kind, term=self.term, subject=self.subject,
@@ -147,13 +160,33 @@ class CBCEvidencePortalTests(TestCase):
         self.client.force_login(self.teacher)
         url = reverse("assessments:cbc-evidence", args=[self.assessment.pk])
         self.assertEqual(self.client.get(url).status_code, 200)
-        response = self.client.post(url, {"section": "outcomes", f"rating_{self.student.pk}_{self.outcome.pk}": "met"})
+        response = self.client.post(url, {"section": "outcomes", f"rating_{self.student.pk}_{self.outcome.pk}": self.level_rating.pk})
         self.assertRedirects(response, f"{url}?section=outcomes")
         self.client.post(url, {"section": "skills", f"rating_{self.student.pk}_{self.skill.pk}": self.level_rating.pk})
         self.client.post(url, {"section": "values", f"rating_{self.student.pk}_{self.value.pk}": self.level_rating.pk})
-        self.assertTrue(LearningOutcomeAssessment.objects.filter(assessment=self.assessment, student=self.student, level="met").exists())
+        self.assertTrue(LearningOutcomeAssessment.objects.filter(assessment=self.assessment, student=self.student, scale_level=self.level_rating).exists())
         self.assertTrue(LearnerSkillRating.objects.filter(assessment=self.assessment, student=self.student, skill=self.skill).exists())
         self.assertTrue(LearnerValueRating.objects.filter(assessment=self.assessment, student=self.student, value=self.value).exists())
+
+    def test_project_milestone_links_evidence_and_reflection(self):
+        project_type = AssessmentType.objects.create(name="Community project", category="project", weight=30)
+        project = Assessment.objects.create(
+            title="Community biodiversity project", assessment_type=project_type, term=self.term,
+            subject=self.subject, stream=self.stream, status="published", created_by=self.teacher,
+            project_type="community", project_supervisor=self.teacher,
+        )
+        milestone = ProjectMilestone.objects.create(
+            assessment=project, title="Community observation", expected_evidence="Field notes",
+            due_date=date(2028, 3, 1), sequence=1, status="open",
+        )
+        item = PortfolioItem.objects.create(
+            student=self.student, term=self.term, stream=self.stream, subject=self.subject,
+            assessment=project, project_milestone=milestone, category="project",
+            title="Field notes", reflection_notes="I learned to compare habitats.",
+            status="submitted", uploaded_by=self.teacher,
+        )
+        self.assertEqual(item.project_milestone, milestone)
+        self.assertEqual(milestone.portfolio_items.get(), item)
 
     def test_unallocated_teacher_cannot_open_cbc_workspace(self):
         outsider = User.objects.create_user("cbc-outsider", role="teacher", password="pass")
