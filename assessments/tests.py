@@ -3,14 +3,17 @@ from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.test import TestCase
+from django.urls import reverse
 from rest_framework.test import APIClient
 
 from academics.models import AcademicYear, ClassLevel, Department, Stream, Subject, SubjectAllocation, Term
 from accounts.models import User
 from students.models import Student
 from .models import (
-    Assessment, AssessmentPolicy, AssessmentResult, AssessmentType, CurriculumFramework,
-    CurriculumTopic, LearningOutcome, LessonPlan, SchemeOfWork, SchemeWeek,
+    Assessment, AssessmentPolicy, AssessmentResult, AssessmentType, CompetencyLevel,
+    CurriculumFramework, CurriculumTopic, CurriculumValue, LearnerSkillRating,
+    LearnerValueRating, LearningOutcome, LearningOutcomeAssessment, LessonPlan,
+    PortfolioItem, SchemeOfWork, SchemeWeek, Skill, TeacherObservation,
 )
 from .services import continuous_assessment_score
 
@@ -108,3 +111,89 @@ class PlanningAndModerationTests(TestCase):
         result.score = 80
         with self.assertRaises(ValidationError):
             result.save()
+
+
+class CBCEvidencePortalTests(TestCase):
+    def setUp(self):
+        self.year = AcademicYear.objects.create(name="2028", start_date=date(2028, 1, 1), end_date=date(2028, 12, 31), is_current=True)
+        self.term = Term.objects.create(academic_year=self.year, name="Term I", number=1, start_date=date(2028, 1, 10), end_date=date(2028, 4, 10), is_current=True)
+        self.level = ClassLevel.objects.create(name="S3", level=3, curriculum="lower")
+        self.stream = Stream.objects.create(name="North", class_level=self.level, academic_year=self.year)
+        self.teacher = User.objects.create_user("cbc-teacher", role="teacher", password="pass")
+        self.parent = User.objects.create_user("cbc-parent", role="parent", password="pass")
+        self.student_user = User.objects.create_user("cbc-student", role="student", password="pass")
+        department = Department.objects.create(name="CBC Sciences", head=self.teacher)
+        self.subject = Subject.objects.create(name="Integrated Science", code="SCI-CBC", department=department, curriculum_level="lower")
+        SubjectAllocation.objects.create(teacher=self.teacher, subject=self.subject, stream=self.stream, term=self.term)
+        self.student = Student.objects.create(
+            user=self.student_user, parent=self.parent, first_name="Mirembe", last_name="Ayo",
+            gender="female", date_of_birth=date(2013, 5, 1), stream=self.stream,
+        )
+        framework = CurriculumFramework.objects.create(name="CBC Portal 2028", stage="lower")
+        topic = CurriculumTopic.objects.create(framework=framework, subject=self.subject, class_level=self.level, term_number=1, title="Living things", sequence=1)
+        self.value = CurriculumValue.objects.create(name="Responsibility", is_assessed=True)
+        self.outcome = LearningOutcome.objects.create(topic=topic, statement="Classify living things accurately.", assessment_criteria="Uses observable features")
+        self.outcome.values.add(self.value)
+        self.skill = Skill.objects.create(name="Observation skill")
+        self.level_rating = CompetencyLevel.objects.create(name="Proficient", code="P", numeric_value=3)
+        kind = AssessmentType.objects.create(name="Field observation", category="fieldwork", weight=20)
+        self.assessment = Assessment.objects.create(
+            title="School garden survey", assessment_type=kind, term=self.term, subject=self.subject,
+            stream=self.stream, topic=topic, status="published", created_by=self.teacher,
+        )
+        self.assessment.learning_outcomes.add(self.outcome)
+
+    def test_teacher_records_all_cbc_evidence_categories(self):
+        self.client.force_login(self.teacher)
+        url = reverse("assessments:cbc-evidence", args=[self.assessment.pk])
+        self.assertEqual(self.client.get(url).status_code, 200)
+        response = self.client.post(url, {"section": "outcomes", f"rating_{self.student.pk}_{self.outcome.pk}": "met"})
+        self.assertRedirects(response, f"{url}?section=outcomes")
+        self.client.post(url, {"section": "skills", f"rating_{self.student.pk}_{self.skill.pk}": self.level_rating.pk})
+        self.client.post(url, {"section": "values", f"rating_{self.student.pk}_{self.value.pk}": self.level_rating.pk})
+        self.assertTrue(LearningOutcomeAssessment.objects.filter(assessment=self.assessment, student=self.student, level="met").exists())
+        self.assertTrue(LearnerSkillRating.objects.filter(assessment=self.assessment, student=self.student, skill=self.skill).exists())
+        self.assertTrue(LearnerValueRating.objects.filter(assessment=self.assessment, student=self.student, value=self.value).exists())
+
+    def test_unallocated_teacher_cannot_open_cbc_workspace(self):
+        outsider = User.objects.create_user("cbc-outsider", role="teacher", password="pass")
+        self.client.force_login(outsider)
+        response = self.client.get(reverse("assessments:cbc-evidence", args=[self.assessment.pk]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_observation_and_portfolio_verification_workflow(self):
+        self.client.force_login(self.teacher)
+        self.assertEqual(self.client.get(reverse("assessments:portfolio-list")).status_code, 200)
+        self.assertEqual(self.client.get(reverse("assessments:portfolio-add")).status_code, 200)
+        observation_response = self.client.post(reverse("assessments:observation-add"), {
+            "student": self.student.pk, "term": self.term.pk, "subject": self.subject.pk,
+            "assessment": self.assessment.pk, "category": "participation",
+            "observation_date": date(2028, 2, 1), "note": "Explained the classification choices clearly.",
+        })
+        self.assertEqual(observation_response.status_code, 302)
+        self.assertTrue(TeacherObservation.objects.filter(student=self.student, observed_by=self.teacher).exists())
+
+        self.client.force_login(self.student_user)
+        create_response = self.client.post(reverse("assessments:portfolio-add"), {
+            "student": self.student.pk, "term": self.term.pk, "subject": self.subject.pk,
+            "assessment": self.assessment.pk, "learning_outcome": self.outcome.pk,
+            "category": "project", "title": "Garden classification chart",
+            "description": "A chart grouping plants and animals observed in the school garden.",
+            "reflection_notes": "I improved how I use visible features to classify organisms.",
+        })
+        self.assertEqual(create_response.status_code, 302)
+        item = PortfolioItem.objects.get(student=self.student)
+        self.assertEqual(item.status, "submitted")
+
+        self.client.force_login(self.parent)
+        self.assertEqual(self.client.get(reverse("assessments:portfolio-detail", args=[item.pk])).status_code, 404)
+
+        self.client.force_login(self.teacher)
+        verify_response = self.client.post(reverse("assessments:portfolio-workflow", args=[item.pk, "verify"]), {"teacher_feedback": "Clear, relevant evidence."})
+        self.assertRedirects(verify_response, reverse("assessments:portfolio-detail", args=[item.pk]))
+        item.refresh_from_db()
+        self.assertEqual(item.status, "verified")
+        self.assertEqual(item.verified_by, self.teacher)
+
+        self.client.force_login(self.parent)
+        self.assertEqual(self.client.get(reverse("assessments:portfolio-detail", args=[item.pk])).status_code, 200)

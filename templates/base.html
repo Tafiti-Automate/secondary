@@ -29,7 +29,8 @@
         {% if request.user.role == 'teacher' or request.user.role == 'super_admin' or request.user.role == 'headteacher' or request.user.role == 'director_of_studies' or request.user.is_superuser %}
         <div><p class="mb-2 px-3 text-[10px] font-bold uppercase tracking-[.2em] text-slate-400">Academic operations</p>
           <a href="{% url 'students:list' %}" class="nav-link {% if request.resolver_match.namespace == 'students' %}nav-link-active{% endif %}"><span>♙</span> Students</a>
-          <a href="{% url 'assessments:list' %}" class="nav-link {% if request.resolver_match.namespace == 'assessments' %}nav-link-active{% endif %}"><span>✓</span> Assessments & CBC</a>
+          <a href="{% url 'assessments:list' %}" class="nav-link {% if request.resolver_match.namespace == 'assessments' and 'portfolio' not in request.resolver_match.url_name %}nav-link-active{% endif %}"><span>✓</span> Assessments & CBC</a>
+          <a href="{% url 'assessments:portfolio-list' %}" class="nav-link {% if request.resolver_match.namespace == 'assessments' and 'portfolio' in request.resolver_match.url_name %}nav-link-active{% endif %}"><span>◫</span> Digital portfolios</a>
           <a href="{% url 'assessments:curriculum' %}" class="nav-link"><span>⌁</span> Curriculum & outcomes</a>
           <a href="{% url 'assessments:teaching-plans' %}" class="nav-link"><span>▧</span> Schemes & lesson plans</a>
           <a href="{% url 'exams:list' %}" class="nav-link {% if request.resolver_match.namespace == 'exams' %}nav-link-active{% endif %}"><span>✎</span> Examinations</a>
@@ -51,6 +52,7 @@
         <div><p class="mb-2 px-3 text-[10px] font-bold uppercase tracking-[.2em] text-slate-400">My academics</p>
           <a href="{% url 'reports:list' %}" class="nav-link"><span>▤</span> Results & reports</a>
           <a href="{% url 'reports:transcript-list' %}" class="nav-link"><span>▥</span> Academic transcripts</a>
+          <a href="{% url 'assessments:portfolio-list' %}" class="nav-link {% if request.resolver_match.namespace == 'assessments' and 'portfolio' in request.resolver_match.url_name %}nav-link-active{% endif %}"><span>◫</span> Digital portfolio</a>
           <a href="{% url 'communications:resources' %}" class="nav-link"><span>◇</span> Study resources</a>
         </div>
         {% endif %}

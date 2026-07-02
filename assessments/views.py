@@ -4,12 +4,13 @@ from io import StringIO
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
 from django.views import View
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
@@ -18,9 +19,10 @@ from config.audit import record_audit
 from config.mixins import ACADEMIC_MANAGERS, AcademicManagerRequiredMixin, AcademicStaffRequiredMixin
 from config.tables import ModelTableView
 from students.models import Student
-from academics.models import ClassLevel, Subject, SubjectAllocation
-from .forms import ActivityOfIntegrationForm, AssessmentEvidenceForm, AssessmentForm, AssessmentPolicyForm, AssessmentTypeForm, CompetencyForm, CompetencyIndicatorForm, CompetencyLevelForm, CurriculumFrameworkForm, CurriculumImportForm, CurriculumTopicForm, CurriculumValueForm, LearningOutcomeForm, LessonPlanForm, RubricCriterionForm, RubricForm, RubricLevelForm, SchemeOfWorkForm, SchemeWeekForm, SubmissionForm
-from .models import ActivityOfIntegration, Assessment, AssessmentEvidence, AssessmentPolicy, AssessmentResult, AssessmentSubmission, AssessmentType, Competency, CompetencyAssessment, CompetencyIndicator, CompetencyLevel, CurriculumFramework, CurriculumLearningArea, CurriculumTopic, CurriculumValue, LearningOutcome, LessonPlan, Rubric, RubricCriterion, RubricLevel, RubricRating, SchemeOfWork, SchemeWeek, Skill
+from academics.models import ClassLevel, Subject, SubjectAllocation, Term
+from communications.services import queue_notification
+from .forms import ActivityOfIntegrationForm, AssessmentEvidenceForm, AssessmentForm, AssessmentPolicyForm, AssessmentTypeForm, CompetencyForm, CompetencyIndicatorForm, CompetencyLevelForm, CurriculumFrameworkForm, CurriculumImportForm, CurriculumTopicForm, CurriculumValueForm, LearningOutcomeForm, LessonPlanForm, PortfolioItemForm, RubricCriterionForm, RubricForm, RubricLevelForm, SchemeOfWorkForm, SchemeWeekForm, SubmissionForm, TeacherObservationForm
+from .models import ActivityOfIntegration, Assessment, AssessmentEvidence, AssessmentPolicy, AssessmentResult, AssessmentSubmission, AssessmentType, Competency, CompetencyAssessment, CompetencyIndicator, CompetencyLevel, CurriculumFramework, CurriculumLearningArea, CurriculumTopic, CurriculumValue, LearnerSkillRating, LearnerValueRating, LearningOutcome, LearningOutcomeAssessment, LessonPlan, PortfolioItem, Rubric, RubricCriterion, RubricLevel, RubricRating, SchemeOfWork, SchemeWeek, Skill, TeacherObservation
 
 
 def teacher_assessments(user):
@@ -38,6 +40,108 @@ def planning_allocations(user):
     if user.is_superuser or user.role in ACADEMIC_MANAGERS:
         return qs
     return qs.filter(Q(teacher=user) | Q(subject__department__head=user)).distinct() if user.role == "teacher" else qs.none()
+
+
+def teacher_can_record_for(user, student, term=None, subject=None):
+    if user.is_superuser or user.role in ACADEMIC_MANAGERS:
+        return True
+    if user.role != "teacher" or not student.stream_id:
+        return False
+    if student.stream.class_teacher_id == user.pk:
+        return True
+    allocations = SubjectAllocation.objects.filter(
+        Q(teacher=user) | Q(subject__department__head=user),
+        stream=student.stream, is_deleted=False, is_active=True,
+    )
+    if term:
+        allocations = allocations.filter(term=term)
+    if subject:
+        allocations = allocations.filter(subject=subject)
+    return allocations.exists()
+
+
+def visible_portfolio_items(user):
+    qs = PortfolioItem.objects.filter(is_deleted=False).select_related(
+        "student__stream__class_level", "term", "subject", "assessment", "learning_outcome",
+        "uploaded_by", "verified_by",
+    )
+    if user.is_superuser or user.role in ACADEMIC_MANAGERS:
+        return qs
+    if user.role == "teacher":
+        allocations = SubjectAllocation.objects.filter(
+            Q(teacher=user) | Q(subject__department__head=user),
+            stream_id=OuterRef("student__stream_id"), term_id=OuterRef("term_id"),
+            is_deleted=False, is_active=True,
+        )
+        subject_allocation = allocations.filter(subject_id=OuterRef("subject_id"))
+        return qs.annotate(
+            has_allocation=Exists(allocations), has_subject_allocation=Exists(subject_allocation),
+        ).filter(
+            Q(student__stream__class_teacher=user)
+            | Q(subject__isnull=True, has_allocation=True)
+            | Q(has_subject_allocation=True)
+        )
+    if user.role == "student":
+        return qs.filter(student__user=user)
+    if user.role == "parent":
+        return qs.filter(
+            Q(student__parent=user) | Q(student__guardian_links__guardian__user=user),
+            status="verified",
+        ).distinct()
+    return qs.none()
+
+
+def visible_portfolio_students(user):
+    qs = Student.objects.filter(is_deleted=False).select_related("stream__class_level")
+    if user.is_superuser or user.role in ACADEMIC_MANAGERS:
+        return qs
+    if user.role == "teacher":
+        return qs.filter(
+            Q(stream__class_teacher=user)
+            | Q(stream__subject_allocations__teacher=user, stream__subject_allocations__is_deleted=False, stream__subject_allocations__is_active=True)
+            | Q(stream__subject_allocations__subject__department__head=user, stream__subject_allocations__is_deleted=False, stream__subject_allocations__is_active=True)
+        ).distinct()
+    if user.role == "student":
+        return qs.filter(user=user)
+    if user.role == "parent":
+        return qs.filter(Q(parent=user) | Q(guardian_links__guardian__user=user)).distinct()
+    return qs.none()
+
+
+def scope_portfolio_form(form, user):
+    active_students = visible_portfolio_students(user).filter(is_active=True)
+    if user.role == "student" and not user.is_superuser:
+        student = active_students.filter(user=user).first()
+        form.fields["student"].queryset = active_students.filter(pk=getattr(student, "pk", None))
+        form.fields["student"].initial = student
+        form.fields["student"].widget = form.fields["student"].hidden_widget()
+        if student and student.stream_id:
+            form.fields["term"].queryset = Term.objects.filter(academic_year=student.stream.academic_year, is_deleted=False)
+            form.fields["assessment"].queryset = Assessment.objects.filter(stream=student.stream, status="published", is_deleted=False)
+            form.fields["subject"].queryset = Subject.objects.filter(
+                Q(allocations__stream=student.stream) | Q(student_registrations__enrollment__student=student, student_registrations__status="active"),
+                is_deleted=False,
+            ).distinct()
+            form.fields["learning_outcome"].queryset = LearningOutcome.objects.filter(topic__class_level=student.stream.class_level, is_deleted=False)
+        return form
+
+    if user.role == "teacher" and not user.is_superuser:
+        allocations = planning_allocations(user)
+        stream_ids = allocations.values_list("stream_id", flat=True)
+        students = active_students.filter(Q(stream_id__in=stream_ids) | Q(stream__class_teacher=user)).distinct()
+        form.fields["student"].queryset = students
+        form.fields["term"].queryset = Term.objects.filter(Q(subject_allocations__in=allocations) | Q(academic_year__streams__class_teacher=user), is_deleted=False).distinct()
+        form.fields["subject"].queryset = Subject.objects.filter(Q(allocations__in=allocations) | Q(department__head=user), is_deleted=False).distinct()
+        form.fields["assessment"].queryset = teacher_assessments(user)
+        form.fields["learning_outcome"].queryset = LearningOutcome.objects.filter(topic__subject__in=form.fields["subject"].queryset, is_deleted=False).distinct()
+        return form
+
+    form.fields["student"].queryset = active_students
+    form.fields["term"].queryset = Term.objects.filter(is_deleted=False)
+    form.fields["subject"].queryset = Subject.objects.filter(is_deleted=False, is_active=True)
+    form.fields["assessment"].queryset = Assessment.objects.filter(is_deleted=False)
+    form.fields["learning_outcome"].queryset = LearningOutcome.objects.filter(is_deleted=False)
+    return form
 
 
 class AssessmentListView(AcademicStaffRequiredMixin, ListView):
@@ -219,6 +323,354 @@ class CompetencyEntryView(AcademicStaffRequiredMixin, View):
         messages.success(request, f"Saved {saved} competency rating(s).")
         record_audit(request, "competency_entry", assessment, f"Entered {saved} competency rating(s)", {"saved": saved})
         return redirect("assessments:competencies", pk=pk)
+
+
+class CBCEvidenceEntryView(AcademicStaffRequiredMixin, View):
+    template_name = "assessments/cbc_evidence_entry.html"
+    sections = {"outcomes", "skills", "values"}
+
+    def get_assessment(self, request, pk):
+        return get_object_or_404(
+            teacher_assessments(request.user).select_related("stream__class_level", "topic", "subject", "term"),
+            pk=pk,
+            stream__class_level__curriculum="lower",
+        )
+
+    @staticmethod
+    def evidence_items(assessment):
+        outcomes = assessment.learning_outcomes.filter(is_deleted=False).order_by("display_order", "pk")
+        if not outcomes.exists() and assessment.topic_id:
+            outcomes = assessment.topic.learning_outcomes.filter(is_deleted=False).order_by("display_order", "pk")
+        skills = Skill.objects.filter(is_deleted=False, is_active=True).order_by("display_order", "name")
+        linked_value_ids = outcomes.values_list("values__pk", flat=True)
+        values = CurriculumValue.objects.filter(is_deleted=False, is_assessed=True)
+        if any(linked_value_ids):
+            values = values.filter(pk__in=linked_value_ids)
+        return outcomes, skills, values.order_by("display_order", "name")
+
+    def build_context(self, request, assessment, section):
+        students = list(Student.objects.filter(stream=assessment.stream, is_deleted=False, is_active=True).order_by("first_name", "last_name"))
+        outcomes, skills, values = self.evidence_items(assessment)
+        levels = list(CompetencyLevel.objects.filter(is_deleted=False).order_by("display_order", "numeric_value"))
+        context = {
+            "assessment": assessment,
+            "active_section": section,
+            "levels": levels,
+            "student_count": len(students),
+            "locked": assessment.is_workflow_locked,
+        }
+        if section == "outcomes":
+            items = list(outcomes)
+            existing = {(item.student_id, item.outcome_id): item for item in LearningOutcomeAssessment.objects.filter(assessment=assessment, is_deleted=False)}
+            context["rows"] = [{"student": student, "ratings": [{"item": item, "rating": existing.get((student.pk, item.pk))} for item in items]} for student in students]
+            context["items"] = items
+            context["level_choices"] = LearningOutcomeAssessment.LEVEL_CHOICES
+        elif section == "skills":
+            items = list(skills)
+            existing = {(item.student_id, item.skill_id): item for item in LearnerSkillRating.objects.filter(assessment=assessment, is_deleted=False).select_related("level")}
+            context["rows"] = [{"student": student, "ratings": [{"item": item, "rating": existing.get((student.pk, item.pk))} for item in items]} for student in students]
+            context["items"] = items
+        else:
+            items = list(values)
+            existing = {(item.student_id, item.value_id): item for item in LearnerValueRating.objects.filter(assessment=assessment, is_deleted=False).select_related("level")}
+            context["rows"] = [{"student": student, "ratings": [{"item": item, "rating": existing.get((student.pk, item.pk))} for item in items]} for student in students]
+            context["items"] = items
+        return context
+
+    def get(self, request, pk):
+        assessment = self.get_assessment(request, pk)
+        section = request.GET.get("section", "outcomes")
+        section = section if section in self.sections else "outcomes"
+        return render(request, self.template_name, self.build_context(request, assessment, section))
+
+    @transaction.atomic
+    def post(self, request, pk):
+        assessment = self.get_assessment(request, pk)
+        section = request.POST.get("section", "outcomes")
+        section = section if section in self.sections else "outcomes"
+        if assessment.is_workflow_locked:
+            messages.error(request, "DOS-approved CBC evidence is read-only.")
+            return redirect(f"{reverse('assessments:cbc-evidence', args=[pk])}?section={section}")
+
+        students = list(Student.objects.filter(stream=assessment.stream, is_deleted=False, is_active=True))
+        outcomes, skills, values = self.evidence_items(assessment)
+        saved = cleared = 0
+        now = timezone.now()
+        if section == "outcomes":
+            valid_levels = dict(LearningOutcomeAssessment.LEVEL_CHOICES)
+            for student in students:
+                for outcome in outcomes:
+                    value = request.POST.get(f"rating_{student.pk}_{outcome.pk}", "")
+                    existing = LearningOutcomeAssessment.objects.filter(assessment=assessment, student=student, outcome=outcome, is_deleted=False).first()
+                    if value in valid_levels:
+                        if existing:
+                            existing.level, existing.assessed_by, existing.assessed_at = value, request.user, now
+                            existing.save(update_fields=["level", "assessed_by", "assessed_at", "updated_at"])
+                        else:
+                            LearningOutcomeAssessment.objects.create(
+                                assessment=assessment, student=student, outcome=outcome,
+                                term=assessment.term, level=value, assessed_by=request.user,
+                            )
+                        saved += 1
+                    elif existing:
+                        existing.soft_delete()
+                        cleared += 1
+        else:
+            level_map = {str(level.pk): level for level in CompetencyLevel.objects.filter(is_deleted=False)}
+            item_list = skills if section == "skills" else values
+            model = LearnerSkillRating if section == "skills" else LearnerValueRating
+            item_field = "skill" if section == "skills" else "value"
+            for student in students:
+                for item in item_list:
+                    level = level_map.get(request.POST.get(f"rating_{student.pk}_{item.pk}", ""))
+                    lookup = {"assessment": assessment, "student": student, item_field: item, "is_deleted": False}
+                    existing = model.objects.filter(**lookup).first()
+                    if level:
+                        if existing:
+                            existing.level, existing.assessed_by, existing.assessed_at = level, request.user, now
+                            existing.save(update_fields=["level", "assessed_by", "assessed_at", "updated_at"])
+                        else:
+                            model.objects.create(
+                                assessment=assessment, student=student, term=assessment.term,
+                                subject=assessment.subject, level=level, assessed_by=request.user,
+                                **{item_field: item},
+                            )
+                        saved += 1
+                    elif existing:
+                        existing.soft_delete()
+                        cleared += 1
+
+        record_audit(request, f"cbc_{section}_entry", assessment, f"Saved {saved} CBC {section} rating(s)", {"saved": saved, "cleared": cleared})
+        messages.success(request, f"Saved {saved} {section} rating(s){f' and cleared {cleared}' if cleared else ''}.")
+        return redirect(f"{reverse('assessments:cbc-evidence', args=[pk])}?section={section}")
+
+
+class TeacherObservationCreateView(AcademicStaffRequiredMixin, CreateView):
+    model = TeacherObservation
+    form_class = TeacherObservationForm
+    template_name = "shared/form.html"
+    extra_context = {"page_title": "Record learner observation", "eyebrow": "CBC narrative evidence", "submit_label": "Save observation"}
+
+    def get_initial(self):
+        initial = super().get_initial()
+        initial.update({
+            "student": self.request.GET.get("student"),
+            "assessment": self.request.GET.get("assessment"),
+            "term": self.request.GET.get("term"),
+            "subject": self.request.GET.get("subject"),
+        })
+        assessment = teacher_assessments(self.request.user).filter(pk=initial.get("assessment")).first()
+        if assessment:
+            initial.update({"term": assessment.term_id, "subject": assessment.subject_id})
+        return initial
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        allowed = teacher_assessments(self.request.user)
+        if self.request.user.is_superuser or self.request.user.role in ACADEMIC_MANAGERS:
+            form.fields["student"].queryset = Student.objects.filter(is_deleted=False, is_active=True)
+            form.fields["term"].queryset = Term.objects.filter(is_deleted=False)
+            form.fields["subject"].queryset = Subject.objects.filter(is_deleted=False, is_active=True)
+            form.fields["assessment"].queryset = Assessment.objects.filter(is_deleted=False)
+        else:
+            stream_ids = allowed.values_list("stream_id", flat=True)
+            form.fields["student"].queryset = Student.objects.filter(Q(stream_id__in=stream_ids) | Q(stream__class_teacher=self.request.user), is_deleted=False, is_active=True).distinct()
+            form.fields["term"].queryset = Term.objects.filter(pk__in=allowed.values_list("term_id", flat=True), is_deleted=False)
+            form.fields["subject"].queryset = Subject.objects.filter(pk__in=allowed.values_list("subject_id", flat=True), is_deleted=False)
+            form.fields["assessment"].queryset = allowed
+        form.fields["competencies"].queryset = Competency.objects.filter(is_deleted=False, is_active=True)
+        form.fields["skills"].queryset = Skill.objects.filter(is_deleted=False, is_active=True)
+        form.fields["values"].queryset = CurriculumValue.objects.filter(is_deleted=False)
+        return form
+
+    def form_valid(self, form):
+        student, term, subject = form.cleaned_data["student"], form.cleaned_data["term"], form.cleaned_data.get("subject")
+        if not teacher_can_record_for(self.request.user, student, term, subject):
+            raise PermissionDenied("You may only record observations for learners assigned to your class or subject.")
+        form.instance.observed_by = self.request.user
+        response = super().form_valid(form)
+        record_audit(self.request, "teacher_observation", self.object, f"Recorded {self.object.get_category_display()} observation for {student.full_name}")
+        messages.success(self.request, "Learner observation saved.")
+        return response
+
+    def get_success_url(self):
+        if self.object.assessment_id:
+            return reverse("assessments:cbc-evidence", args=[self.object.assessment_id])
+        return reverse("students:detail", args=[self.object.student_id])
+
+
+class PortfolioListView(LoginRequiredMixin, ListView):
+    template_name = "assessments/portfolio_list.html"
+    context_object_name = "portfolio_items"
+    paginate_by = 18
+
+    def get_queryset(self):
+        qs = visible_portfolio_items(self.request.user)
+        if self.request.GET.get("student"):
+            qs = qs.filter(student_id=self.request.GET["student"])
+        if self.request.GET.get("term"):
+            qs = qs.filter(term_id=self.request.GET["term"])
+        if self.request.GET.get("status"):
+            qs = qs.filter(status=self.request.GET["status"])
+        query = self.request.GET.get("q", "").strip()
+        if query:
+            qs = qs.filter(Q(title__icontains=query) | Q(description__icontains=query) | Q(student__first_name__icontains=query) | Q(student__last_name__icontains=query))
+        return qs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update({
+            "terms": Term.objects.filter(is_deleted=False),
+            "statuses": PortfolioItem._meta.get_field("status").choices,
+            "can_upload": self.request.user.is_superuser or self.request.user.role in ACADEMIC_MANAGERS | {"teacher", "student"},
+            "selected_student": visible_portfolio_students(self.request.user).filter(pk=self.request.GET.get("student")).first(),
+        })
+        return context
+
+
+class PortfolioFormScopeMixin:
+    def get_form(self, form_class=None):
+        return scope_portfolio_form(super().get_form(form_class), self.request.user)
+
+
+class PortfolioItemCreateView(LoginRequiredMixin, PortfolioFormScopeMixin, CreateView):
+    model = PortfolioItem
+    form_class = PortfolioItemForm
+    template_name = "assessments/portfolio_form.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        if not (request.user.is_superuser or request.user.role in ACADEMIC_MANAGERS | {"teacher", "student"}):
+            raise PermissionDenied("You do not have permission to upload portfolio evidence.")
+        if request.user.role == "student" and not hasattr(request.user, "student_profile"):
+            raise PermissionDenied("A linked learner profile is required.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_initial(self):
+        initial = super().get_initial()
+        initial.update({
+            "student": self.request.GET.get("student"), "term": self.request.GET.get("term"),
+            "subject": self.request.GET.get("subject"), "assessment": self.request.GET.get("assessment"),
+            "learning_outcome": self.request.GET.get("outcome"),
+        })
+        if self.request.user.role == "student" and hasattr(self.request.user, "student_profile"):
+            initial["student"] = self.request.user.student_profile.pk
+            current_term = Term.objects.filter(is_current=True, is_deleted=False).first()
+            if current_term:
+                initial["term"] = current_term.pk
+        assessment = teacher_assessments(self.request.user).filter(pk=initial.get("assessment")).first() if self.request.user.role != "student" else None
+        if assessment:
+            initial.update({"term": assessment.term_id, "subject": assessment.subject_id})
+        return initial
+
+    def form_valid(self, form):
+        if self.request.user.role == "student" and not self.request.user.is_superuser:
+            if not hasattr(self.request.user, "student_profile"):
+                raise PermissionDenied("A linked learner profile is required.")
+            form.instance.student = self.request.user.student_profile
+        elif not teacher_can_record_for(self.request.user, form.cleaned_data["student"], form.cleaned_data["term"], form.cleaned_data.get("subject")):
+            raise PermissionDenied("You may only upload evidence for learners assigned to your class or subject.")
+        if form.instance.assessment_id and not form.instance.subject_id:
+            form.instance.subject = form.instance.assessment.subject
+        form.instance.stream = form.instance.student.stream
+        form.instance.uploaded_by = self.request.user
+        form.instance.status = "submitted"
+        response = super().form_valid(form)
+        record_audit(self.request, "portfolio_upload", self.object, f"Uploaded portfolio evidence for {self.object.student.full_name}")
+        messages.success(self.request, "Portfolio evidence submitted for verification.")
+        return response
+
+    def get_success_url(self):
+        return reverse("assessments:portfolio-detail", args=[self.object.pk])
+
+
+class PortfolioItemUpdateView(LoginRequiredMixin, PortfolioFormScopeMixin, UpdateView):
+    model = PortfolioItem
+    form_class = PortfolioItemForm
+    template_name = "assessments/portfolio_form.html"
+
+    def get_queryset(self):
+        return visible_portfolio_items(self.request.user)
+
+    def dispatch(self, request, *args, **kwargs):
+        item = self.get_object()
+        if item.status == "verified":
+            raise PermissionDenied("Verified portfolio evidence is read-only.")
+        if request.user.role == "student" and item.student.user_id != request.user.pk:
+            raise PermissionDenied("You may only edit your own portfolio evidence.")
+        if request.user.role == "parent":
+            raise PermissionDenied("Parents cannot edit learner portfolio evidence.")
+        if request.user.role == "teacher" and not teacher_can_record_for(request.user, item.student, item.term, item.subject):
+            raise PermissionDenied("You may only edit evidence for learners assigned to you.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def form_valid(self, form):
+        if self.request.user.role == "student" and not self.request.user.is_superuser:
+            form.instance.student = self.request.user.student_profile
+        if form.instance.assessment_id and not form.instance.subject_id:
+            form.instance.subject = form.instance.assessment.subject
+        form.instance.stream = form.instance.student.stream
+        form.instance.status = "submitted"
+        form.instance.verified_by = None
+        form.instance.verified_at = None
+        response = super().form_valid(form)
+        record_audit(self.request, "portfolio_update", self.object, "Updated portfolio evidence and resubmitted it")
+        messages.success(self.request, "Portfolio evidence updated and resubmitted.")
+        return response
+
+    def get_success_url(self):
+        return reverse("assessments:portfolio-detail", args=[self.object.pk])
+
+
+class PortfolioItemDetailView(LoginRequiredMixin, DetailView):
+    model = PortfolioItem
+    template_name = "assessments/portfolio_detail.html"
+    context_object_name = "item"
+
+    def get_queryset(self):
+        return visible_portfolio_items(self.request.user)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        item = self.object
+        context["can_review"] = teacher_can_record_for(self.request.user, item.student, item.term, item.subject)
+        context["can_edit"] = item.status != "verified" and (
+            self.request.user.is_superuser or self.request.user.role in ACADEMIC_MANAGERS
+            or (self.request.user.role == "teacher" and context["can_review"])
+            or (self.request.user.role == "student" and item.student.user_id == self.request.user.pk)
+        )
+        return context
+
+
+class PortfolioWorkflowView(AcademicStaffRequiredMixin, View):
+    @transaction.atomic
+    def post(self, request, pk, operation):
+        item = get_object_or_404(visible_portfolio_items(request.user), pk=pk)
+        if not teacher_can_record_for(request.user, item.student, item.term, item.subject):
+            raise PermissionDenied("You may only review evidence for learners assigned to you.")
+        feedback = request.POST.get("teacher_feedback", "").strip()
+        if operation == "verify":
+            item.status = "verified"
+            item.verified_by = request.user
+            item.verified_at = timezone.now()
+            item.teacher_feedback = feedback
+            action_message = "Portfolio evidence verified."
+        elif operation == "request-changes":
+            item.status = "draft"
+            item.verified_by = None
+            item.verified_at = None
+            item.teacher_feedback = feedback
+            action_message = "Portfolio evidence returned for changes."
+        else:
+            raise Http404
+        item.save()
+        record_audit(request, f"portfolio_{operation}", item, action_message)
+        if item.student.user_id:
+            queue_notification(
+                item.student.user, "Portfolio evidence updated", action_message,
+                link=reverse("assessments:portfolio-detail", args=[item.pk]),
+            )
+        messages.success(request, action_message)
+        return redirect("assessments:portfolio-detail", pk=item.pk)
 
 
 class CurriculumOverviewView(AcademicStaffRequiredMixin, TemplateView):

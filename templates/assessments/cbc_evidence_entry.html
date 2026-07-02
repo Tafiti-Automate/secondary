@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}CBC evidence · {{ assessment.title }}{% endblock %}
+{% block header_title %}CBC evidence workspace{% endblock %}
+{% block content %}
+<div class="mb-6 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+  <div>
+    <div class="flex flex-wrap gap-2"><span class="badge-blue">{{ assessment.subject }}</span><span class="badge-green">{{ assessment.stream }}</span>{% if locked %}<span class="badge-amber">DOS approved · read-only</span>{% endif %}</div>
+    <h1 class="page-title mt-3">Whole-learner evidence</h1>
+    <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-500">{{ assessment.title }} · record outcome attainment, practical skills and values demonstrated by {{ student_count }} learner{{ student_count|pluralize }}.</p>
+  </div>
+  <div class="flex flex-wrap gap-2">
+    <a class="btn-secondary" href="{% url 'assessments:detail' assessment.pk %}">← Assessment</a>
+    <a class="btn-secondary" href="{% url 'assessments:observation-add' %}?assessment={{ assessment.pk }}&term={{ assessment.term_id }}&subject={{ assessment.subject_id }}">＋ Observation</a>
+    <a class="btn-primary" href="{% url 'assessments:portfolio-add' %}?assessment={{ assessment.pk }}&term={{ assessment.term_id }}&subject={{ assessment.subject_id }}">＋ Portfolio evidence</a>
+  </div>
+</div>
+
+<nav class="mb-5 flex gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-soft dark:border-slate-700 dark:bg-slate-800" aria-label="CBC evidence categories">
+  <a href="?section=outcomes" class="whitespace-nowrap rounded-xl px-4 py-2.5 text-sm font-semibold {% if active_section == 'outcomes' %}bg-brand-600 text-white shadow-lg shadow-brand-600/20{% else %}text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700{% endif %}">Learning outcomes</a>
+  <a href="?section=skills" class="whitespace-nowrap rounded-xl px-4 py-2.5 text-sm font-semibold {% if active_section == 'skills' %}bg-brand-600 text-white shadow-lg shadow-brand-600/20{% else %}text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700{% endif %}">Practical skills</a>
+  <a href="?section=values" class="whitespace-nowrap rounded-xl px-4 py-2.5 text-sm font-semibold {% if active_section == 'values' %}bg-brand-600 text-white shadow-lg shadow-brand-600/20{% else %}text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700{% endif %}">Values demonstrated</a>
+</nav>
+
+{% if items %}
+<form method="post">
+  {% csrf_token %}<input type="hidden" name="section" value="{{ active_section }}">
+  <div class="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-soft dark:border-slate-700 dark:bg-slate-800">
+    <table class="min-w-full border-collapse text-sm">
+      <thead>
+        <tr class="bg-emerald-50/80 text-left dark:bg-slate-700/80">
+          <th class="sticky left-0 z-20 min-w-60 border-b border-r border-emerald-100 bg-emerald-50 px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300">Learner</th>
+          {% for item in items %}<th class="min-w-56 border-b border-r border-emerald-100 px-4 py-4 align-top last:border-r-0 dark:border-slate-600"><p class="font-semibold text-slate-900 dark:text-white">{% if active_section == 'outcomes' %}{{ item.statement }}{% else %}{{ item.name }}{% endif %}</p>{% if active_section == 'outcomes' %}<p class="mt-1 text-[11px] font-normal leading-4 text-slate-500">{{ item.assessment_criteria|default:"Select demonstrated level"|truncatechars:90 }}</p>{% endif %}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr class="border-t border-slate-100 hover:bg-emerald-50/30 dark:border-slate-700 dark:hover:bg-slate-700/40">
+          <th class="sticky left-0 z-10 border-r border-slate-100 bg-white px-4 py-3 text-left dark:border-slate-700 dark:bg-slate-800"><p class="font-semibold">{{ row.student.full_name }}</p><p class="mt-1 text-xs font-normal text-slate-500">{{ row.student.admission_number }}</p></th>
+          {% for cell in row.ratings %}
+          <td class="border-r border-slate-100 px-3 py-3 last:border-r-0 dark:border-slate-700">
+            <select class="form-control !mt-0 min-w-48" name="rating_{{ row.student.pk }}_{{ cell.item.pk }}" {% if locked %}disabled{% endif %}>
+              <option value="">Not yet evidenced</option>
+              {% if active_section == 'outcomes' %}
+                {% for value,label in level_choices %}<option value="{{ value }}" {% if cell.rating.level == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+              {% else %}
+                {% for level in levels %}<option value="{{ level.pk }}" {% if cell.rating.level_id == level.pk %}selected{% endif %}>{{ level.name }}</option>{% endfor %}
+              {% endif %}
+            </select>
+          </td>
+          {% endfor %}
+        </tr>
+        {% empty %}<tr><td colspan="99" class="py-14 text-center text-slate-500">No active learners are assigned to this stream.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if not locked %}<div class="sticky bottom-4 z-20 mt-5 flex justify-end"><button class="btn-primary shadow-glow">Save {{ active_section }} evidence</button></div>{% endif %}
+</form>
+{% else %}
+<div class="empty-state"><div class="grid h-14 w-14 place-items-center rounded-2xl bg-amber-100 text-2xl text-amber-700">!</div><h2 class="mt-5 font-display text-lg font-bold">No {{ active_section }} configured</h2><p class="mt-2 max-w-lg text-sm text-slate-500">Configure this evidence category in the curriculum workspace, then return to this assessment.</p><a class="btn-secondary mt-5" href="{% url 'assessments:curriculum' %}">Open curriculum setup</a></div>
+{% endif %}
+{% endblock %}

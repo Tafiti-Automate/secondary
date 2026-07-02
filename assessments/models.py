@@ -62,7 +62,7 @@ class CurriculumFramework(BaseModel):
     name = models.CharField(max_length=160)
     stage = models.CharField(max_length=20, choices=[("lower", "Lower Secondary"), ("advanced", "Advanced Secondary")])
     version = models.CharField(max_length=40, blank=True)
-    implementation_year = models.PositiveIntegerField(default=2025)
+    implementation_year = models.PositiveIntegerField(default=2026)
     authority = models.CharField(max_length=120, default="National Curriculum Development Centre")
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)

@@ -2,7 +2,7 @@ from django.urls import path, reverse_lazy
 
 from .forms import ActivityOfIntegrationForm, AssessmentPolicyForm, AssessmentTypeForm, CompetencyForm, CompetencyIndicatorForm, CompetencyLevelForm, CurriculumFrameworkForm, CurriculumLearningAreaForm, CurriculumTopicForm, CurriculumValueForm, LearningOutcomeForm, RubricCriterionForm, RubricForm, RubricLevelForm, SkillForm
 from .models import ActivityOfIntegration, AssessmentPolicy, AssessmentType, Competency, CompetencyIndicator, CompetencyLevel, CurriculumFramework, CurriculumLearningArea, CurriculumTopic, CurriculumValue, LearningOutcome, Rubric, RubricCriterion, RubricLevel, Skill
-from .views import ActivityDetailView, AssessmentCreateView, AssessmentDeleteView, AssessmentDetailView, AssessmentListView, AssessmentUpdateView, AssessmentWorkflowView, CompetencyEntryView, CurriculumImportTemplateView, CurriculumImportView, CurriculumOverviewView, EvidenceCreateView, LessonPlanCreateView, MarkEntryView, RubricEntryView, SchemeCreateView, SchemeDetailView, SchemeWeekCreateView, SchemeWorkflowView, SetupCreateView, SetupTableView, SetupUpdateView, SubmissionCreateView, TeachingPlanOverviewView
+from .views import ActivityDetailView, AssessmentCreateView, AssessmentDeleteView, AssessmentDetailView, AssessmentListView, AssessmentUpdateView, AssessmentWorkflowView, CBCEvidenceEntryView, CompetencyEntryView, CurriculumImportTemplateView, CurriculumImportView, CurriculumOverviewView, EvidenceCreateView, LessonPlanCreateView, MarkEntryView, PortfolioItemCreateView, PortfolioItemDetailView, PortfolioItemUpdateView, PortfolioListView, PortfolioWorkflowView, RubricEntryView, SchemeCreateView, SchemeDetailView, SchemeWeekCreateView, SchemeWorkflowView, SetupCreateView, SetupTableView, SetupUpdateView, SubmissionCreateView, TeacherObservationCreateView, TeachingPlanOverviewView
 
 app_name = "assessments"
 
@@ -15,9 +15,16 @@ urlpatterns = [
     path("<int:pk>/workflow/", AssessmentWorkflowView.as_view(), name="workflow"),
     path("<int:pk>/marks/", MarkEntryView.as_view(), name="marks"),
     path("<int:pk>/competencies/", CompetencyEntryView.as_view(), name="competencies"),
+    path("<int:pk>/cbc-evidence/", CBCEvidenceEntryView.as_view(), name="cbc-evidence"),
     path("<int:pk>/rubric/", RubricEntryView.as_view(), name="rubric-entry"),
     path("<int:pk>/submit/", SubmissionCreateView.as_view(), name="submit"),
     path("evidence/add/", EvidenceCreateView.as_view(), name="evidence-add"),
+    path("observations/add/", TeacherObservationCreateView.as_view(), name="observation-add"),
+    path("portfolio/", PortfolioListView.as_view(), name="portfolio-list"),
+    path("portfolio/add/", PortfolioItemCreateView.as_view(), name="portfolio-add"),
+    path("portfolio/<int:pk>/", PortfolioItemDetailView.as_view(), name="portfolio-detail"),
+    path("portfolio/<int:pk>/edit/", PortfolioItemUpdateView.as_view(), name="portfolio-edit"),
+    path("portfolio/<int:pk>/<str:operation>/", PortfolioWorkflowView.as_view(), name="portfolio-workflow"),
     path("planning/", TeachingPlanOverviewView.as_view(), name="teaching-plans"),
     path("planning/schemes/add/", SchemeCreateView.as_view(), name="scheme-add"),
     path("planning/schemes/<int:pk>/", SchemeDetailView.as_view(), name="scheme-detail"),

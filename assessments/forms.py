@@ -5,8 +5,9 @@ from .models import (
     ActivityOfIntegration, Assessment, AssessmentEvidence, AssessmentPolicy,
     AssessmentSubmission, AssessmentType, Competency, CompetencyIndicator,
     CompetencyLevel, CurriculumFramework, CurriculumLearningArea, CurriculumTopic,
-    CurriculumValue, LearningOutcome, LessonPlan, Rubric, RubricCriterion, RubricLevel,
-    SchemeOfWork, SchemeWeek, Skill,
+    CurriculumValue, LearningOutcome, LessonPlan, PortfolioItem, Rubric,
+    RubricCriterion, RubricLevel, SchemeOfWork, SchemeWeek, Skill,
+    TeacherObservation,
 )
 
 
@@ -119,6 +120,53 @@ class AssessmentEvidenceForm(StyledModelForm):
     class Meta:
         model = AssessmentEvidence
         fields = ("assessment", "student", "method", "note", "attachment")
+
+
+class PortfolioItemForm(StyledModelForm):
+    class Meta:
+        model = PortfolioItem
+        fields = (
+            "student", "term", "subject", "assessment", "learning_outcome", "category",
+            "title", "description", "attachment", "external_url", "reflection_notes",
+        )
+        widgets = {
+            "description": forms.Textarea(attrs={"rows": 4}),
+            "reflection_notes": forms.Textarea(attrs={"rows": 4}),
+        }
+
+    def clean_attachment(self):
+        upload = self.cleaned_data.get("attachment")
+        if upload and upload.size > 10 * 1024 * 1024:
+            raise forms.ValidationError("Portfolio attachments must be 10 MB or smaller.")
+        return upload
+
+    def clean(self):
+        cleaned = super().clean()
+        student = cleaned.get("student")
+        term = cleaned.get("term")
+        subject = cleaned.get("subject")
+        assessment = cleaned.get("assessment")
+        outcome = cleaned.get("learning_outcome")
+        if student and term and student.stream_id and student.stream.academic_year_id != term.academic_year_id:
+            self.add_error("term", "Choose a term from the learner's current academic year.")
+        if assessment and student and assessment.stream_id != student.stream_id:
+            self.add_error("assessment", "The assessment does not belong to this learner's stream.")
+        if outcome and subject and outcome.topic.subject_id != subject.pk:
+            self.add_error("learning_outcome", "The learning outcome does not belong to the selected subject.")
+        return cleaned
+
+
+class TeacherObservationForm(StyledModelForm):
+    class Meta:
+        model = TeacherObservation
+        fields = (
+            "student", "term", "subject", "assessment", "category", "observation_date",
+            "note", "competencies", "skills", "values", "follow_up_required", "follow_up_note",
+        )
+        widgets = {
+            "note": forms.Textarea(attrs={"rows": 5}),
+            "follow_up_note": forms.Textarea(attrs={"rows": 3}),
+        }
 
 
 class SchemeOfWorkForm(StyledModelForm):
