@@ -2,7 +2,7 @@ from django.urls import path, reverse_lazy
 
 from .forms import ActivityOfIntegrationForm, AssessmentPolicyForm, AssessmentScaleForm, AssessmentTypeForm, CompetencyForm, CompetencyIndicatorForm, CompetencyLevelForm, CurriculumFrameworkForm, CurriculumLearningAreaForm, CurriculumTopicForm, CurriculumValueForm, LearningOutcomeForm, RubricCriterionForm, RubricForm, RubricLevelForm, SkillForm
 from .models import ActivityOfIntegration, AssessmentPolicy, AssessmentScale, AssessmentType, Competency, CompetencyIndicator, CompetencyLevel, CurriculumFramework, CurriculumLearningArea, CurriculumTopic, CurriculumValue, LearningOutcome, Rubric, RubricCriterion, RubricLevel, Skill
-from .views import ActivityDetailView, AssessmentCreateView, AssessmentDeleteView, AssessmentDetailView, AssessmentListView, AssessmentUpdateView, AssessmentWorkflowView, CBCEvidenceEntryView, CompetencyEntryView, CurriculumImportTemplateView, CurriculumImportView, CurriculumOverviewView, EvidenceCreateView, LessonPlanCreateView, MarkEntryView, PortfolioItemCreateView, PortfolioItemDetailView, PortfolioItemUpdateView, PortfolioListView, PortfolioWorkflowView, ProjectMilestoneCreateView, RubricEntryView, SchemeCreateView, SchemeDetailView, SchemeWeekCreateView, SchemeWorkflowView, SetupCreateView, SetupTableView, SetupUpdateView, SubmissionCreateView, TeacherObservationCreateView, TeachingPlanOverviewView
+from .views import ActivityDetailView, AssessmentCreateView, AssessmentDeleteView, AssessmentDetailView, AssessmentListView, AssessmentUpdateView, AssessmentWorkflowView, CBCEvidenceEntryView, CompetencyEntryView, CurriculumFrameworkWorkflowView, CurriculumImportTemplateView, CurriculumImportView, CurriculumOverviewView, EvidenceAssetCreateView, EvidenceCreateView, LessonPlanCreateView, MarkEntryView, PortfolioItemCreateView, PortfolioItemDetailView, PortfolioItemUpdateView, PortfolioListView, PortfolioWorkflowView, ProjectMilestoneCreateView, ProjectTeamCreateView, ProjectTeamMemberCreateView, RubricEntryView, SchemeCreateView, SchemeDetailView, SchemeWeekCreateView, SchemeWorkflowView, SetupCreateView, SetupTableView, SetupUpdateView, SubmissionCreateView, TeacherObservationCreateView, TeachingPlanOverviewView
 
 app_name = "assessments"
 
@@ -20,6 +20,7 @@ urlpatterns = [
     path("<int:pk>/project-milestones/add/", ProjectMilestoneCreateView.as_view(), name="project-milestone-add"),
     path("<int:pk>/submit/", SubmissionCreateView.as_view(), name="submit"),
     path("evidence/add/", EvidenceCreateView.as_view(), name="evidence-add"),
+    path("evidence/<int:pk>/assets/add/", EvidenceAssetCreateView.as_view(), name="evidence-asset-add"),
     path("observations/add/", TeacherObservationCreateView.as_view(), name="observation-add"),
     path("portfolio/", PortfolioListView.as_view(), name="portfolio-list"),
     path("portfolio/add/", PortfolioItemCreateView.as_view(), name="portfolio-add"),
@@ -32,9 +33,12 @@ urlpatterns = [
     path("planning/schemes/<int:pk>/weeks/add/", SchemeWeekCreateView.as_view(), name="scheme-week-add"),
     path("planning/schemes/<int:pk>/workflow/", SchemeWorkflowView.as_view(), name="scheme-workflow"),
     path("planning/lessons/add/", LessonPlanCreateView.as_view(), name="lesson-plan-add"),
+    path("projects/<int:pk>/teams/add/", ProjectTeamCreateView.as_view(), name="project-team-add"),
+    path("project-teams/<int:pk>/members/add/", ProjectTeamMemberCreateView.as_view(), name="project-team-member-add"),
     path("curriculum/", CurriculumOverviewView.as_view(), name="curriculum"),
     path("curriculum/import/", CurriculumImportView.as_view(), name="curriculum-import"),
     path("curriculum/import/template.csv", CurriculumImportTemplateView.as_view(), name="curriculum-import-template"),
+    path("curriculum/frameworks/<int:pk>/<str:operation>/", CurriculumFrameworkWorkflowView.as_view(), name="framework-workflow"),
     path("curriculum/activities/<int:pk>/", ActivityDetailView.as_view(), name="activity-detail"),
 ]
 

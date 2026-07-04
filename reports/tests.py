@@ -11,8 +11,8 @@ from assessments.models import (
     LearnerValueRating, LearningOutcome, LearningOutcomeAssessment, PortfolioItem, Skill,
 )
 from accounts.models import User
-from students.models import Student
-from .models import ReportCard
+from students.models import Enrollment, Student
+from .models import ReportCard, ReportLearningOutcomeRating
 from .services import generate_academic_transcript, generate_report_card
 from .views import build_report_pdf_bytes, build_transcript_pdf_bytes
 
@@ -39,6 +39,17 @@ class ReportVisibilityTests(TestCase):
         card = ReportCard.objects.create(student=student, term=term, stream=stream, status="published")
         self.client.force_login(parent)
         self.assertEqual(self.client.get(reverse("reports:detail", args=[card.pk])).status_code, 200)
+
+    def test_parent_can_view_only_their_learner_growth_profile(self):
+        year = AcademicYear.objects.create(name="2027", start_date=date(2027, 1, 1), end_date=date(2027, 12, 31))
+        level = ClassLevel.objects.create(name="S2", level=2, curriculum="lower")
+        stream = Stream.objects.create(name="A", class_level=level, academic_year=year)
+        parent = User.objects.create_user("growth-parent", role="parent")
+        linked = Student.objects.create(first_name="Linked", last_name="Growth", gender="female", date_of_birth=date(2013, 1, 1), stream=stream, parent=parent)
+        other = Student.objects.create(first_name="Other", last_name="Growth", gender="male", date_of_birth=date(2013, 1, 1), stream=stream)
+        self.client.force_login(parent)
+        self.assertEqual(self.client.get(reverse("reports:growth-profile", args=[linked.pk])).status_code, 200)
+        self.assertEqual(self.client.get(reverse("reports:growth-profile", args=[other.pk])).status_code, 404)
 
 
 class MissingEvidenceTests(TestCase):
@@ -101,3 +112,38 @@ class CompetencyReportTests(TestCase):
         self.assertEqual(transcript.entries.get().score, card.subject_results.get().final_score)
         self.assertTrue(build_report_pdf_bytes(card).startswith(b"%PDF"))
         self.assertTrue(build_transcript_pdf_bytes(transcript).startswith(b"%PDF"))
+
+    def test_legacy_learning_outcome_rating_label_is_rendered(self):
+        rating = ReportLearningOutcomeRating(level="met")
+        self.assertEqual(rating.display_level, "Met expectation")
+
+
+class HistoricalReportTests(TestCase):
+    def test_report_uses_academic_year_enrolment_after_promotion(self):
+        old_year = AcademicYear.objects.create(name="2033", start_date=date(2033, 1, 1), end_date=date(2033, 12, 31))
+        new_year = AcademicYear.objects.create(name="2034", start_date=date(2034, 1, 1), end_date=date(2034, 12, 31), is_current=True)
+        term = Term.objects.create(academic_year=old_year, name="Term III", number=3, start_date=date(2033, 9, 1), end_date=date(2033, 12, 1))
+        s1 = ClassLevel.objects.create(name="Historical S1", level=21, curriculum="lower")
+        s2 = ClassLevel.objects.create(name="Historical S2", level=22, curriculum="lower")
+        old_stream = Stream.objects.create(name="Old", class_level=s1, academic_year=old_year)
+        new_stream = Stream.objects.create(name="New", class_level=s2, academic_year=new_year)
+        student = Student.objects.create(first_name="Promoted", last_name="Learner", gender="male", date_of_birth=date(2020, 1, 1), stream=old_stream)
+        Enrollment.objects.create(student=student, academic_year=old_year, stream=old_stream)
+        teacher = User.objects.create_user("historical-teacher", role="teacher")
+        subject = Subject.objects.create(name="Historical English", code="HENG", curriculum_level="lower")
+        SubjectAllocation.objects.create(teacher=teacher, subject=subject, stream=old_stream, term=term)
+        policy = AssessmentPolicy.objects.create(
+            name="Historical policy", academic_year=old_year, class_level=s1,
+            curriculum_stage="lower", ongoing_weight=100, summative_weight=0,
+            summative_frequency="none",
+        )
+        kind = AssessmentType.objects.create(name="Historical task", category="project", weight=100)
+        assessment = Assessment.objects.create(title="Old class task", assessment_type=kind, term=term, subject=subject, stream=old_stream, status="published")
+        AssessmentResult.objects.create(assessment=assessment, student=student, score=75)
+        student.stream = new_stream
+        student.save()
+
+        card = generate_report_card(student, term, teacher, policy)
+
+        self.assertEqual(card.stream, old_stream)
+        self.assertEqual(card.subject_results.get(subject=subject).final_score, 75)

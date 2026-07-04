@@ -2,7 +2,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 
-from academics.models import Stream, Subject, Term
+from academics.models import Stream, Subject, SubjectAllocation, Term
 from accounts.models import User
 from config.models import BaseModel
 
@@ -75,3 +75,42 @@ class TimetableEntry(BaseModel):
 
     def __str__(self):
         return f"{self.get_day_of_week_display()} · {self.time_slot} · {self.stream}"
+
+
+class SchedulingRequirement(BaseModel):
+    allocation = models.OneToOneField(SubjectAllocation, related_name="scheduling_requirement", on_delete=models.CASCADE)
+    required_room_type = models.CharField(max_length=30, choices=[("", "Any suitable room"), *Room._meta.get_field("room_type").choices], blank=True)
+    preferred_room = models.ForeignKey(Room, related_name="preferred_scheduling_requirements", on_delete=models.SET_NULL, null=True, blank=True)
+    allowed_days = models.JSONField(default=list, blank=True, help_text="Weekday numbers, for example [1,2,3,4,5]. Empty means Monday–Friday.")
+    max_lessons_per_day = models.PositiveSmallIntegerField(default=1)
+    notes = models.TextField(blank=True)
+
+    def clean(self):
+        invalid = [day for day in self.allowed_days if day not in range(1, 7)]
+        if invalid:
+            raise ValidationError({"allowed_days": "Days must be numbers from 1 (Monday) to 6 (Saturday)."})
+        if self.preferred_room_id and self.required_room_type and self.preferred_room.room_type != self.required_room_type:
+            raise ValidationError({"preferred_room": "Preferred room does not match the required room type."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Scheduling · {self.allocation}"
+
+
+class TimetableGenerationRun(BaseModel):
+    term = models.ForeignKey(Term, related_name="timetable_generation_runs", on_delete=models.PROTECT)
+    requested_by = models.ForeignKey(User, related_name="timetable_generation_runs", on_delete=models.SET_NULL, null=True)
+    status = models.CharField(max_length=20, choices=[("running", "Running"), ("completed", "Completed"), ("partial", "Completed with gaps"), ("simulated", "Simulation"), ("failed", "Failed")], default="running")
+    generated_count = models.PositiveIntegerField(default=0)
+    unresolved_count = models.PositiveIntegerField(default=0)
+    result = models.JSONField(default=dict, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.term} · {self.get_status_display()} · {self.created_at:%d %b %Y %H:%M}"

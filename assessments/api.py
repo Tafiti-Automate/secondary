@@ -14,9 +14,9 @@ from .models import (
     ActivityOfIntegration, Assessment, AssessmentEvidence, AssessmentPolicy, AssessmentResult,
     AssessmentReview, AssessmentScale, AssessmentSubmission, AssessmentType, Competency, CompetencyAssessment,
     CompetencyIndicator, CompetencyLevel, CurriculumFramework, CurriculumLearningArea,
-    CurriculumTopic, CurriculumValue, LearnerSkillRating, LearnerValueRating, LearningOutcome,
+    CurriculumTopic, CurriculumValue, EvidenceAsset, LearnerSkillRating, LearnerValueRating, LearningOutcome,
     LearningOutcomeAssessment, LessonPlan, PortfolioItem, ProjectMilestone, Rubric, RubricCriterion, RubricLevel,
-    RubricRating, SchemeOfWork, SchemeWeek, Skill, TeacherObservation,
+    ProjectTeam, ProjectTeamMember, RubricRating, SchemeOfWork, SchemeWeek, Skill, TeacherObservation,
 )
 from .serializers import (
     ActivityOfIntegrationSerializer, AssessmentEvidenceSerializer, AssessmentPolicySerializer,
@@ -24,9 +24,9 @@ from .serializers import (
     AssessmentScaleSerializer, AssessmentSubmissionSerializer, AssessmentTypeSerializer, CompetencyAssessmentSerializer,
     CompetencyIndicatorSerializer, CompetencyLevelSerializer, CompetencySerializer,
     CurriculumFrameworkSerializer, CurriculumLearningAreaSerializer, CurriculumTopicSerializer,
-    CurriculumValueSerializer, LearnerSkillRatingSerializer, LearnerValueRatingSerializer,
+    CurriculumValueSerializer, EvidenceAssetSerializer, LearnerSkillRatingSerializer, LearnerValueRatingSerializer,
     LearningOutcomeAssessmentSerializer, LearningOutcomeSerializer, LessonPlanSerializer,
-    PortfolioItemSerializer, ProjectMilestoneSerializer, RubricCriterionSerializer, RubricLevelSerializer,
+    PortfolioItemSerializer, ProjectMilestoneSerializer, ProjectTeamMemberSerializer, ProjectTeamSerializer, RubricCriterionSerializer, RubricLevelSerializer,
     RubricRatingSerializer, RubricSerializer, SchemeOfWorkSerializer, SchemeWeekSerializer,
     SkillSerializer, TeacherObservationSerializer,
 )
@@ -54,7 +54,24 @@ AssessmentTypeViewSet = viewset_for(AssessmentType, AssessmentTypeSerializer)
 for setup_viewset in (AssessmentScaleViewSet, CompetencyViewSet, CompetencyLevelViewSet, CompetencyIndicatorViewSet, AssessmentTypeViewSet):
     setup_viewset.permission_classes = [IsReadOnlyOrAcademicManager]
 
-CurriculumFrameworkViewSet = viewset_for(CurriculumFramework, CurriculumFrameworkSerializer)
+class CurriculumFrameworkViewSet(BaseViewSet):
+    queryset = CurriculumFramework.objects.all()
+    serializer_class = CurriculumFrameworkSerializer
+    permission_classes = [IsReadOnlyOrAcademicManager]
+
+    def perform_create(self, serializer):
+        serializer.save(status="draft", is_active=True)
+
+    @action(detail=True, methods=["post"])
+    def transition(self, request, pk=None):
+        framework = self.get_object()
+        try:
+            framework.transition(request.data.get("operation", ""), request.user)
+        except DjangoValidationError as exc:
+            return Response({"detail": exc.messages}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(self.get_serializer(framework).data)
+
+
 CurriculumValueViewSet = viewset_for(CurriculumValue, CurriculumValueSerializer)
 CurriculumLearningAreaViewSet = viewset_for(CurriculumLearningArea, CurriculumLearningAreaSerializer)
 CurriculumTopicViewSet = viewset_for(CurriculumTopic, CurriculumTopicSerializer)
@@ -285,8 +302,46 @@ class AssessmentEvidenceViewSet(BaseViewSet):
             raise PermissionDenied("You may only capture evidence for your assigned subject and stream.")
         serializer.save(captured_by=self.request.user)
 
+
+class EvidenceAssetViewSet(BaseViewSet):
+    queryset = EvidenceAsset.objects.all()
+    serializer_class = EvidenceAssetSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+        if user.is_superuser or user.role in ACADEMIC_MANAGERS:
+            return qs
+        if user.role == "teacher":
+            allocation = SubjectAllocation.objects.filter(
+                teacher=user,
+                subject_id=OuterRef("evidence__assessment__subject_id"),
+                stream_id=OuterRef("evidence__assessment__stream_id"),
+                term_id=OuterRef("evidence__assessment__term_id"),
+                is_deleted=False,
+                is_active=True,
+            )
+            return qs.annotate(is_allocated=Exists(allocation)).filter(is_allocated=True)
+        if user.role == "student":
+            return qs.filter(evidence__student__user=user)
+        if user.role == "parent":
+            return qs.filter(Q(evidence__student__parent=user) | Q(evidence__student__guardian_links__guardian__user=user)).distinct()
+        return qs.none()
+
+    def perform_create(self, serializer):
+        evidence = serializer.validated_data["evidence"]
+        if evidence.assessment.is_workflow_locked:
+            raise APIValidationError("DOS-approved multimedia evidence is read-only.")
+        if self.request.user.role == "teacher" and not SubjectAllocation.objects.filter(
+            teacher=self.request.user, subject=evidence.assessment.subject,
+            stream=evidence.assessment.stream, term=evidence.assessment.term,
+            is_deleted=False, is_active=True,
+        ).exists():
+            raise PermissionDenied("You may only attach media to evidence in your assigned subject and stream.")
+        serializer.save(captured_by=self.request.user)
+
     def perform_update(self, serializer):
-        if serializer.instance.assessment.is_workflow_locked:
+        if serializer.instance.evidence.assessment.is_workflow_locked:
             raise APIValidationError("DOS-approved assessment evidence is read-only.")
         serializer.save(captured_by=self.request.user)
 
@@ -385,8 +440,56 @@ class ProjectMilestoneViewSet(BaseViewSet):
             raise PermissionDenied("You may only plan milestones for your assigned projects.")
         serializer.save()
 
+
+class ProjectTeamViewSet(ProjectMilestoneViewSet):
+    queryset = ProjectTeam.objects.all()
+    serializer_class = ProjectTeamSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if self.request.user.role == "student":
+            return qs.filter(members__student__user=self.request.user, members__is_deleted=False).distinct()
+        return qs
+
+
+class ProjectTeamMemberViewSet(BaseViewSet):
+    queryset = ProjectTeamMember.objects.all()
+    serializer_class = ProjectTeamMemberSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+        if user.is_superuser or user.role in ACADEMIC_MANAGERS:
+            return qs
+        if user.role == "teacher":
+            allocation = SubjectAllocation.objects.filter(
+                teacher=user,
+                subject_id=OuterRef("team__assessment__subject_id"),
+                stream_id=OuterRef("team__assessment__stream_id"),
+                term_id=OuterRef("team__assessment__term_id"),
+                is_deleted=False,
+                is_active=True,
+            )
+            return qs.annotate(is_allocated=Exists(allocation)).filter(is_allocated=True)
+        if user.role == "student":
+            return qs.filter(student__user=user)
+        if user.role == "parent":
+            return qs.filter(Q(student__parent=user) | Q(student__guardian_links__guardian__user=user)).distinct()
+        return qs.none()
+
+    def perform_create(self, serializer):
+        assessment = serializer.validated_data["team"].assessment
+        if assessment.is_workflow_locked:
+            raise APIValidationError("DOS-approved project teams are read-only.")
+        if self.request.user.role == "teacher" and not SubjectAllocation.objects.filter(
+            teacher=self.request.user, subject=assessment.subject, stream=assessment.stream,
+            term=assessment.term, is_deleted=False, is_active=True,
+        ).exists():
+            raise PermissionDenied("You may only manage project teams for your assigned subject and stream.")
+        serializer.save()
+
     def perform_update(self, serializer):
-        if serializer.instance.assessment.is_workflow_locked:
+        if serializer.instance.team.assessment.is_workflow_locked:
             raise APIValidationError("DOS-approved project plans are read-only.")
         serializer.save()
 

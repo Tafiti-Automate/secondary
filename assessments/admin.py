@@ -4,8 +4,8 @@ from .models import (
     ActivityOfIntegration, Assessment, AssessmentEvidence, AssessmentPolicy, AssessmentResult,
     AssessmentReview, AssessmentScale, AssessmentSubmission, AssessmentType, Competency, CompetencyAssessment,
     CompetencyIndicator, CompetencyLevel, CurriculumFramework, CurriculumLearningArea,
-    CurriculumTopic, CurriculumValue, LearnerSkillRating, LearnerValueRating, LearningOutcome,
-    LearningOutcomeAssessment, LessonPlan, PortfolioItem, ProjectMilestone, Rubric, RubricCriterion, RubricLevel,
+    CurriculumTopic, CurriculumValue, EvidenceAsset, LearnerSkillRating, LearnerValueRating, LearningOutcome,
+    LearningOutcomeAssessment, LessonPlan, PortfolioItem, ProjectMilestone, ProjectTeam, ProjectTeamMember, Rubric, RubricCriterion, RubricLevel,
     RubricRating, SchemeOfWork, SchemeWeek, Skill, TeacherObservation,
 )
 
@@ -17,4 +17,5 @@ admin.site.register([
     AssessmentResult, CompetencyAssessment, AssessmentSubmission, AssessmentEvidence,
     SchemeOfWork, SchemeWeek, LessonPlan, Skill, LearningOutcomeAssessment, LearnerSkillRating,
     LearnerValueRating, PortfolioItem, ProjectMilestone, TeacherObservation, AssessmentReview,
+    EvidenceAsset, ProjectTeam, ProjectTeamMember,
 ])

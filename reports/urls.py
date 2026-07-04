@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import AcademicTranscriptDetailView, AcademicTranscriptListView, AcademicTranscriptPDFView, AnalyticsDashboardView, BulkReportPDFZipView, GenerateReportsView, GenerateTranscriptView, IssueTranscriptView, MissingMarksView, PerformanceExcelView, ReportBatchWorkflowView, ReportCardDetailView, ReportCardListView, ReportCardPDFView, ReportPublishView, ReportReviewView
+from .views import AcademicTranscriptDetailView, AcademicTranscriptListView, AcademicTranscriptPDFView, AnalyticsDashboardView, BulkReportPDFZipView, GenerateReportsView, GenerateTranscriptView, IssueTranscriptView, LearnerGrowthProfileView, MissingMarksView, PerformanceExcelView, ReportBatchWorkflowView, ReportCardDetailView, ReportCardListView, ReportCardPDFView, ReportPublishView, ReportReviewView
 
 app_name = "reports"
 urlpatterns = [
@@ -15,6 +15,7 @@ urlpatterns = [
     path("transcripts/<int:pk>/", AcademicTranscriptDetailView.as_view(), name="transcript-detail"),
     path("transcripts/<int:pk>/issue/", IssueTranscriptView.as_view(), name="transcript-issue"),
     path("transcripts/<int:pk>/pdf/", AcademicTranscriptPDFView.as_view(), name="transcript-pdf"),
+    path("growth/<int:pk>/", LearnerGrowthProfileView.as_view(), name="growth-profile"),
     path("<int:pk>/", ReportCardDetailView.as_view(), name="detail"),
     path("<int:pk>/review/", ReportReviewView.as_view(), name="review"),
     path("<int:pk>/publish/", ReportPublishView.as_view(), name="publish"),

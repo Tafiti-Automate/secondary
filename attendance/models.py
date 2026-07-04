@@ -1,3 +1,5 @@
+import uuid
+
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
@@ -43,6 +45,10 @@ class AttendanceRecord(BaseModel):
     arrival_time = models.TimeField(null=True, blank=True)
     reason = models.CharField(max_length=180, blank=True)
     notes = models.TextField(blank=True)
+    capture_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    source = models.CharField(max_length=20, choices=[("web", "Web register"), ("offline", "Offline device"), ("qr", "QR code"), ("biometric", "Biometric adapter"), ("import", "Imported")], default="web")
+    device_id = models.CharField(max_length=100, blank=True)
+    captured_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         ordering = ["student__first_name", "student__last_name"]
@@ -54,6 +60,81 @@ class AttendanceRecord(BaseModel):
 
     def __str__(self):
         return f"{self.student} · {self.status}"
+
+
+class AttendanceIdentity(BaseModel):
+    """External attendance identity. Biometric templates stay with the provider, never here."""
+    PROVIDERS = [("qr", "QR code"), ("biometric", "Biometric provider"), ("external", "External system")]
+    student = models.ForeignKey(Student, related_name="attendance_identities", on_delete=models.CASCADE)
+    provider = models.CharField(max_length=20, choices=PROVIDERS)
+    external_reference = models.CharField(max_length=180)
+    label = models.CharField(max_length=100, blank=True)
+    valid_from = models.DateField(default=timezone.localdate)
+    valid_until = models.DateField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    enrolled_by = models.ForeignKey(User, related_name="enrolled_attendance_identities", on_delete=models.SET_NULL, null=True)
+
+    class Meta:
+        ordering = ["student", "provider"]
+        constraints = [models.UniqueConstraint(fields=["provider", "external_reference"], condition=Q(is_deleted=False), name="unique_attendance_external_identity")]
+
+    def clean(self):
+        if self.valid_until and self.valid_until < self.valid_from:
+            raise ValidationError({"valid_until": "Expiry cannot precede activation."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.student} · {self.get_provider_display()}"
+
+
+class AttendanceAlert(BaseModel):
+    TYPES = [("absence", "Repeated absence"), ("late", "Repeated lateness"), ("safeguarding", "Safeguarding concern"), ("missing", "Unexplained missing learner")]
+    student = models.ForeignKey(Student, related_name="attendance_alerts", on_delete=models.CASCADE)
+    session = models.ForeignKey(AttendanceSession, related_name="alerts", on_delete=models.SET_NULL, null=True, blank=True)
+    alert_type = models.CharField(max_length=20, choices=TYPES, default="absence")
+    severity = models.CharField(max_length=16, choices=[("low", "Low"), ("medium", "Medium"), ("high", "High"), ("critical", "Critical")], default="medium")
+    summary = models.CharField(max_length=220)
+    status = models.CharField(max_length=20, choices=[("open", "Open"), ("reviewing", "Under review"), ("resolved", "Resolved")], default="open")
+    assigned_to = models.ForeignKey(User, related_name="assigned_attendance_alerts", on_delete=models.SET_NULL, null=True, blank=True)
+    resolved_by = models.ForeignKey(User, related_name="resolved_attendance_alerts", on_delete=models.SET_NULL, null=True, blank=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.student} · {self.get_alert_type_display()}"
+
+
+class AttendanceIntervention(BaseModel):
+    student = models.ForeignKey(Student, related_name="attendance_interventions", on_delete=models.CASCADE)
+    alert = models.ForeignKey(AttendanceAlert, related_name="interventions", on_delete=models.SET_NULL, null=True, blank=True)
+    intervention_type = models.CharField(max_length=24, choices=[("call", "Parent/guardian call"), ("meeting", "Family meeting"), ("counselling", "Learner counselling"), ("home_visit", "Home visit"), ("referral", "Safeguarding referral"), ("support_plan", "Attendance support plan")])
+    action_date = models.DateField(default=timezone.localdate)
+    details = models.TextField()
+    outcome = models.TextField(blank=True)
+    follow_up_date = models.DateField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=[("planned", "Planned"), ("completed", "Completed"), ("follow_up", "Follow-up required")], default="planned")
+    recorded_by = models.ForeignKey(User, related_name="recorded_attendance_interventions", on_delete=models.SET_NULL, null=True)
+
+    class Meta:
+        ordering = ["-action_date", "-created_at"]
+
+    def clean(self):
+        if self.alert_id and self.student_id and self.alert.student_id != self.student_id:
+            raise ValidationError({"alert": "The alert belongs to another learner."})
+        if self.follow_up_date and self.follow_up_date < self.action_date:
+            raise ValidationError({"follow_up_date": "Follow-up cannot precede the intervention."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.student} · {self.get_intervention_type_display()}"
 
 
 class TeacherAttendance(BaseModel):

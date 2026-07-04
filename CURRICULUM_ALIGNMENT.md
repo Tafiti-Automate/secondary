@@ -51,3 +51,5 @@ Before first use, the Director of Studies should:
 3. Verify S5–S6 subject combinations and every candidate's individual subject registration.
 4. Test missing-evidence, moderation, approval, report publication, locking, and UNEB export with a non-production cohort.
 5. Sign off the wording and layout of report cards and the current UNEB pre-submission export.
+6. Run `python manage.py check_school_readiness --academic-year YEAR_NAME` and resolve every error before the pilot.
+7. Before a candidate export, rerun the command with `--uneb-level uce|uace --uneb-year YYYY`; export is blocked unless the whole cohort passes preflight.

@@ -12,8 +12,8 @@ from config.crud import AuditedFormMixin, SoftDeleteView
 from config.audit import record_audit
 from config.mixins import ACADEMIC_MANAGERS, AcademicManagerRequiredMixin, AcademicStaffRequiredMixin
 from students.models import Student
-from .forms import AttendanceSessionForm, TeacherAttendanceForm
-from .models import AttendanceRecord, AttendanceSession, TeacherAttendance
+from .forms import AttendanceAlertForm, AttendanceIdentityForm, AttendanceInterventionForm, AttendanceSessionForm, TeacherAttendanceForm
+from .models import AttendanceAlert, AttendanceIdentity, AttendanceIntervention, AttendanceRecord, AttendanceSession, TeacherAttendance
 
 
 def attendance_sessions(user):
@@ -80,6 +80,12 @@ class TakeAttendanceView(AcademicStaffRequiredMixin, View):
                 recipients += [link.guardian.user for link in student.guardian_links.filter(receives_alerts=True, guardian__user__isnull=False, is_deleted=False).select_related("guardian__user")]
                 for recipient in set(recipients):
                     Notification.objects.get_or_create(recipient=recipient, title=f"Absence alert · {student.full_name} · {session.date:%d %b}", channel="in_app", defaults={"message": f"{student.full_name} was marked absent from {session.get_session_type_display().lower()} on {session.date:%d %B %Y}.", "status": "sent", "link": reverse("students:detail", args=[student.pk])})
+                absences = AttendanceRecord.objects.filter(student=student, status="absent", is_deleted=False).count()
+                if absences >= 3:
+                    AttendanceAlert.objects.get_or_create(
+                        student=student, session=session, alert_type="absence", is_deleted=False,
+                        defaults={"severity": "high" if absences >= 6 else "medium", "summary": f"{absences} recorded absences require follow-up."},
+                    )
             saved += 1
         messages.success(request, f"Attendance saved for {saved} student(s).")
         record_audit(request, "attendance", session, f"Saved attendance for {saved} student(s)", {"saved": saved})
@@ -126,4 +132,28 @@ class AttendanceAnalyticsView(AcademicStaffRequiredMixin, View):
         totals = records.values("status").annotate(total=Count("id"))
         summary = {item["status"]: item["total"] for item in totals}
         at_risk = Student.objects.filter(attendance_records__session__in=sessions, attendance_records__status="absent", attendance_records__is_deleted=False).annotate(absences=Count("attendance_records")).filter(absences__gte=3).order_by("-absences")[:20]
-        return render(request, "attendance/analytics.html", {"summary": summary, "at_risk": at_risk, "total": sum(summary.values())})
+        return render(request, "attendance/analytics.html", {"summary": summary, "at_risk": at_risk, "total": sum(summary.values()), "open_alerts": AttendanceAlert.objects.filter(status__in=("open", "reviewing"), is_deleted=False)[:10]})
+
+
+class AttendanceAlertListView(AcademicStaffRequiredMixin, ListView):
+    template_name = "attendance/alert_list.html"
+    context_object_name = "alerts"
+    paginate_by = 30
+
+    def get_queryset(self):
+        qs = AttendanceAlert.objects.filter(is_deleted=False).select_related("student", "session", "assigned_to")
+        if self.request.user.role == "teacher" and not self.request.user.is_superuser:
+            qs = qs.filter(Q(assigned_to=self.request.user) | Q(student__stream__class_teacher=self.request.user)).distinct()
+        return qs
+
+
+class AttendanceWorkflowCreateView(AcademicManagerRequiredMixin, AuditedFormMixin, CreateView):
+    template_name = "shared/form.html"
+    audit_action = "create"
+
+    def form_valid(self, form):
+        if isinstance(form.instance, AttendanceIdentity):
+            form.instance.enrolled_by = self.request.user
+        if isinstance(form.instance, AttendanceIntervention):
+            form.instance.recorded_by = self.request.user
+        return super().form_valid(form)

@@ -9,7 +9,7 @@ from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views import View
 from django.views.generic import CreateView, DetailView, ListView, UpdateView
@@ -21,9 +21,11 @@ from config.audit import record_audit
 from config.mixins import ACADEMIC_MANAGERS, AcademicManagerRequiredMixin, AcademicStaffRequiredMixin
 from config.tables import ModelTableView
 from students.models import Student
-from academics.models import ClassLevel, SubjectAllocation, Term
-from .forms import ExamSessionForm, ExaminationForm, GradeBoundaryForm, GradeScaleForm, UNEBCandidateForm, UNEBCandidateSubjectForm, UNEBCAImportForm, UNEBContinuousAssessmentForm
-from .models import ExamSession, Examination, ExaminationResult, GradeBoundary, GradeScale, UNEBCandidate, UNEBCandidateSubject, UNEBContinuousAssessment, UNEBExportBatch
+from academics.models import ClassLevel, Stream, SubjectAllocation, Term
+from .forms import ExamSessionForm, ExaminationForm, GradeBoundaryForm, GradeScaleForm, UNEBCandidateForm, UNEBCandidateSubjectForm, UNEBCAImportForm, UNEBContinuousAssessmentForm, UpperAssessmentComponentForm, UpperAssessmentPlanForm
+from .models import ExamSession, Examination, ExaminationResult, GradeBoundary, GradeScale, UNEBCandidate, UNEBCandidateSubject, UNEBContinuousAssessment, UNEBExportBatch, UNEBIntegrationAdapter, UpperAssessmentComponent, UpperAssessmentPlan
+from .readiness import active_uneb_adapter, uneb_export_columns, uneb_export_preflight, uneb_export_row
+from .services import process_upper_subject_results
 
 
 def teacher_examinations(user):
@@ -68,6 +70,9 @@ class ExaminationCreateView(AcademicStaffRequiredMixin, AuditedFormMixin, Create
             form.fields["stream"].queryset = form.fields["stream"].queryset.filter(subject_allocations__in=allocations).distinct()
             form.fields["term"].queryset = form.fields["term"].queryset.filter(subject_allocations__in=allocations).distinct()
             form.fields["status"].choices = [("draft", "Draft"), ("entry", "Mark entry")]
+        form.fields["component"].queryset = UpperAssessmentComponent.objects.filter(
+            plan__status__in=("approved", "locked"), is_active=True, is_deleted=False,
+        ).select_related("plan__subject", "plan__class_level")
         return form
 
 
@@ -86,7 +91,131 @@ class ExaminationUpdateView(AcademicStaffRequiredMixin, AuditedFormMixin, Update
         form = super().get_form(form_class)
         if self.request.user.role == "teacher" and not self.request.user.is_superuser:
             form.fields["status"].choices = [("draft", "Draft"), ("entry", "Mark entry")]
+        form.fields["component"].queryset = UpperAssessmentComponent.objects.filter(
+            plan__status__in=("approved", "locked"), is_active=True, is_deleted=False,
+        ).select_related("plan__subject", "plan__class_level")
         return form
+
+
+class UpperAssessmentPlanListView(AcademicManagerRequiredMixin, ListView):
+    template_name = "exams/upper_plan_list.html"
+    context_object_name = "plans"
+    paginate_by = 30
+
+    def get_queryset(self):
+        return UpperAssessmentPlan.objects.filter(is_deleted=False).select_related(
+            "academic_year", "class_level", "subject", "grade_scale", "approved_by"
+        ).prefetch_related("components")
+
+
+class UpperAssessmentPlanCreateView(AcademicManagerRequiredMixin, AuditedFormMixin, CreateView):
+    model = UpperAssessmentPlan
+    form_class = UpperAssessmentPlanForm
+    template_name = "shared/form.html"
+    audit_action = "create"
+    extra_context = {"page_title": "Create S5/S6 assessment plan", "eyebrow": "Aligned Advanced Secondary", "submit_label": "Create draft plan"}
+
+    def form_valid(self, form):
+        form.instance.status = "draft"
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse("exams:upper-plan-detail", args=[self.object.pk])
+
+
+class UpperAssessmentPlanDetailView(AcademicManagerRequiredMixin, DetailView):
+    template_name = "exams/upper_plan_detail.html"
+    context_object_name = "plan"
+
+    def get_queryset(self):
+        return UpperAssessmentPlan.objects.filter(is_deleted=False).select_related(
+            "academic_year", "class_level", "subject", "grade_scale", "approved_by"
+        ).prefetch_related("components", "processed_results__student", "processed_results__term")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["terms"] = Term.objects.filter(
+            academic_year=self.object.academic_year, number=3, is_deleted=False,
+        )
+        context["streams"] = Stream.objects.filter(
+            academic_year=self.object.academic_year,
+            class_level=self.object.class_level,
+            is_deleted=False,
+        )
+        return context
+
+
+class UpperAssessmentComponentCreateView(AcademicManagerRequiredMixin, AuditedFormMixin, CreateView):
+    model = UpperAssessmentComponent
+    form_class = UpperAssessmentComponentForm
+    template_name = "shared/form.html"
+    audit_action = "create"
+    extra_context = {"page_title": "Add S5/S6 assessment component", "eyebrow": "Aligned annual plan", "submit_label": "Add component"}
+
+    def dispatch(self, request, *args, **kwargs):
+        self.plan = get_object_or_404(UpperAssessmentPlan, pk=kwargs["pk"], status="draft", is_deleted=False)
+        return super().dispatch(request, *args, **kwargs)
+
+    def form_valid(self, form):
+        form.instance.plan = self.plan
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse("exams:upper-plan-detail", args=[self.plan.pk])
+
+
+class UpperAssessmentComponentUpdateView(AcademicManagerRequiredMixin, AuditedFormMixin, UpdateView):
+    model = UpperAssessmentComponent
+    form_class = UpperAssessmentComponentForm
+    template_name = "shared/form.html"
+    audit_action = "update"
+    extra_context = {"page_title": "Edit S5/S6 assessment component", "eyebrow": "Aligned annual plan", "submit_label": "Save component"}
+
+    def get_queryset(self):
+        return UpperAssessmentComponent.objects.filter(plan__status="draft", is_deleted=False)
+
+    def get_success_url(self):
+        return reverse("exams:upper-plan-detail", args=[self.object.plan_id])
+
+
+class UpperAssessmentPlanWorkflowView(AcademicManagerRequiredMixin, View):
+    def post(self, request, pk, operation):
+        plan = get_object_or_404(UpperAssessmentPlan, pk=pk, is_deleted=False)
+        try:
+            if operation == "approve" and plan.status == "draft":
+                plan.status, plan.approved_by = "approved", request.user
+            elif operation == "lock" and plan.status == "approved":
+                plan.status, plan.approved_by = "locked", plan.approved_by or request.user
+            elif operation == "reopen" and plan.status in {"approved", "locked"}:
+                plan.status = "draft"
+                plan.approved_by = None
+                plan.approved_at = None
+            else:
+                raise ValidationError("That assessment-plan transition is not allowed.")
+            plan.save()
+        except ValidationError as exc:
+            messages.error(request, "; ".join(exc.messages))
+        else:
+            record_audit(request, f"upper_plan_{operation}", plan, f"S5/S6 assessment plan {operation}")
+            messages.success(request, f"Assessment plan {operation} completed.")
+        return redirect("exams:upper-plan-detail", pk=pk)
+
+
+class UpperAssessmentPlanProcessView(AcademicManagerRequiredMixin, View):
+    def post(self, request, pk):
+        plan = get_object_or_404(UpperAssessmentPlan, pk=pk, is_deleted=False)
+        try:
+            term = Term.objects.get(pk=request.POST.get("term"), is_deleted=False)
+            stream = Stream.objects.get(pk=request.POST.get("stream"), is_deleted=False)
+            results = process_upper_subject_results(plan, term, stream, request.user)
+        except (Term.DoesNotExist, Stream.DoesNotExist, TypeError, ValueError):
+            messages.error(request, "Choose a valid Term III and stream.")
+        except ValidationError as exc:
+            messages.error(request, "; ".join(exc.messages))
+        else:
+            record_audit(request, "upper_plan_process", plan, f"Processed {len(results)} S5/S6 subject result(s)")
+            messages.success(request, f"Processed {len(results)} S5/S6 subject result(s).")
+        return redirect("exams:upper-plan-detail", pk=pk)
 
 
 class ExaminationDetailView(AcademicStaffRequiredMixin, DetailView):
@@ -374,34 +503,42 @@ class UNEBExportView(AcademicManagerRequiredMixin, View):
     def post(self, request):
         level = request.POST.get("level")
         year = request.POST.get("year")
-        records = UNEBContinuousAssessment.objects.filter(is_deleted=False, status="approved", candidate_subject__candidate__examination_level=level, candidate_subject__candidate__examination_year=year).select_related("candidate_subject__candidate", "candidate_subject__subject", "class_level", "term")
-        if not records.exists():
-            messages.error(request, "No approved records match that examination level and year.")
-            return redirect("exams:uneb-ca-list")
-        incomplete = records.filter(Q(candidate_subject__candidate__index_number="") | Q(candidate_subject__candidate__centre_number=""))
-        if incomplete.exists():
-            messages.error(request, "Export blocked: every candidate needs an index number and centre number.")
+        adapter = active_uneb_adapter(level, year) if level and year else None
+        preflight = uneb_export_preflight(level, year, adapter)
+        if not preflight.ready:
+            for error in preflight.errors[:20]:
+                messages.error(request, f"Export blocked: {error}")
+            if len(preflight.errors) > 20:
+                messages.error(request, f"{len(preflight.errors) - 20} additional issue(s) were omitted.")
             return redirect("exams:uneb-ca-list")
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = "UNEB CA pre-submission"
-        headers = ["Centre No.", "Index No.", "Candidate Name", "Sex", "Level", "Year", "Subject Code", "Subject", "Class", "Term", "Component", "Raw Score", "Maximum", "Percentage", "Evidence Reference"]
+        headers = [column["header"] for column in uneb_export_columns(adapter)]
         sheet.append(headers)
         for cell in sheet[1]:
             cell.font = Font(bold=True, color="FFFFFF")
             cell.fill = PatternFill("solid", fgColor="0F766E")
-        selected = list(records)
+        selected = preflight.records
         for item in selected:
-            candidate = item.candidate_subject.candidate
-            sheet.append([candidate.centre_number, candidate.index_number, candidate.candidate_name, candidate.gender, candidate.examination_level.upper(), candidate.examination_year, item.candidate_subject.subject_code, item.candidate_subject.subject.name, item.class_level.name, item.term.name if item.term else "", item.get_component_display(), float(item.raw_score), float(item.maximum_score), float(item.percentage_score), item.evidence_reference])
+            sheet.append(uneb_export_row(item, adapter))
         for column in sheet.columns:
             sheet.column_dimensions[column[0].column_letter].width = min(max(len(str(cell.value or "")) for cell in column) + 2, 38)
         buffer = BytesIO()
         workbook.save(buffer)
         payload = buffer.getvalue()
-        batch = UNEBExportBatch.objects.create(examination_level=level, examination_year=int(year), generated_by=request.user, record_count=len(selected), checksum=hashlib.sha256(payload).hexdigest())
+        batch = UNEBExportBatch.objects.create(
+            examination_level=level,
+            examination_year=int(year),
+            generated_by=request.user,
+            record_count=len(selected),
+            checksum=hashlib.sha256(payload).hexdigest(),
+            adapter=adapter,
+            format_version=adapter.version if adapter else "internal-pre-submission-v1",
+            validation_report={"errors": preflight.errors, "warnings": preflight.warnings, "ready": preflight.ready},
+        )
         batch.records.set(selected)
-        records.update(status="exported")
+        UNEBContinuousAssessment.objects.filter(pk__in=[item.pk for item in selected]).update(status="exported")
         record_audit(request, "uneb_export", batch, f"Generated pre-submission export with {len(selected)} record(s)", {"checksum": batch.checksum})
         response = HttpResponse(payload, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         response["Content-Disposition"] = f'attachment; filename="{level.upper()}-{year}-CA-pre-submission.xlsx"'
@@ -417,7 +554,17 @@ class SetupCreateView(AcademicManagerRequiredMixin, AuditedFormMixin, CreateView
     template_name = "shared/form.html"
     audit_action = "create"
 
+    def form_valid(self, form):
+        if isinstance(form.instance, UNEBIntegrationAdapter) and form.instance.status == "active":
+            form.instance.approved_by = self.request.user
+        return super().form_valid(form)
+
 
 class SetupUpdateView(AcademicManagerRequiredMixin, AuditedFormMixin, UpdateView):
     template_name = "shared/form.html"
     audit_action = "update"
+
+    def form_valid(self, form):
+        if isinstance(form.instance, UNEBIntegrationAdapter) and form.instance.status == "active":
+            form.instance.approved_by = self.request.user
+        return super().form_valid(form)

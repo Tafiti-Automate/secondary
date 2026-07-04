@@ -5,23 +5,23 @@ A complete, role-aware academic platform for Uganda lower-secondary CBC (S1–S4
 ## Academic coverage
 
 - Role dashboards for Super Administrator, Headteacher, Director of Studies, Teacher, Parent, and Student
-- Student admission numbers, learner profiles, guardians, enrolment and promotion history
+- Permanent learner identifiers, complete learner timelines, accommodations, interests, achievements, guardians, enrolment, movement and promotion history
 - Academic years, terms, S1–S6 classes, streams, departments, subjects, combinations and teacher allocations
 - The six NCDC generic skills, named configurable achievement scales and subject/class indicators
-- Curriculum learning areas, outcome criteria, suggested activities and required evidence
+- Draft/published/retired curriculum versions with effective dates, successor links, learning areas, outcomes and evidence requirements
 - HOD-approved schemes of work, weekly plans and lesson plans linked to teacher allocations
 - Exercises, tests, assignments, projects, practical work, presentations, group work and coursework with per-task weights
-- Individual, group, class, interdisciplinary, long-term and community projects with supervisors, milestones, evidence and reflections
+- Individual, group, class, interdisciplinary, long-term and community projects with teams, roles, supervisors, milestones, multimedia evidence and reflections
 - Separate learner outcome, practical-skill and value ratings, teacher observations and S1–S4 portfolios
 - Weighted continuous assessment, assignment files/submissions and bulk mark entry
 - HOD → DOS assessment moderation with immutable DOS-approved learner evidence
 - Examination sessions, grade scales, mark entry, moderation, approval, publication and locking
-- S5–S6 assessment plans with weighted coursework/practical/exam components and processed rankings
-- Competency-based report cards with attendance, position, comments and promotion decisions
+- S5–S6 assessment plans with weighted coursework/practical/exam components, processed rankings and versioned UNEB export adapters
+- Competency-based report cards plus longitudinal growth profiles with cohort-standard comparisons
 - PDF report cards, Excel class-performance exports and cumulative academic transcripts
-- Daily, subject and teacher attendance with parent absence alerts and analytics
-- Class/teacher/student timetables, rooms and teacher/room/stream conflict detection
-- Announcements, learning resources and in-system/email-ready notifications
+- Daily, subject and teacher attendance with retry-safe offline capture, QR/biometric provider references, alerts, interventions and analytics
+- Class/teacher/student timetables with simulation and automatic conflict-free scheduling across allocations, rooms, labs and learner demand
+- Multilingual announcements, private family-school conversations, consent records, emergency broadcasts, resources and delivery queues
 - REST API, JWT claims, browsable OpenAPI documentation, pagination and throttling
 - Soft deletion, activity tracking and an academic audit trail
 - Responsive mobile navigation, dark mode, accessible forms and print layouts
@@ -62,7 +62,11 @@ python manage.py check
 python manage.py makemigrations --check --dry-run
 python manage.py test
 python manage.py collectstatic --noinput
+python manage.py check_school_readiness --academic-year 2026
 ```
 
-See [API.md](API.md), [ERD.md](ERD.md), and [DEPLOYMENT.md](DEPLOYMENT.md) for interface, data-model, and production instructions.
+See [API.md](API.md), [ERD.md](ERD.md), [DEPLOYMENT.md](DEPLOYMENT.md),
+[docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md), and
+[docs/SCHOOL_ACCEPTANCE_CHECKLIST.md](docs/SCHOOL_ACCEPTANCE_CHECKLIST.md), and
+[docs/EVOLUTION_ARCHITECTURE.md](docs/EVOLUTION_ARCHITECTURE.md).
 # secondary

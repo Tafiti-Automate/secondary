@@ -5,8 +5,8 @@ from .models import (
     ActivityOfIntegration, Assessment, AssessmentEvidence, AssessmentPolicy,
     AssessmentScale, AssessmentSubmission, AssessmentType, Competency, CompetencyIndicator,
     CompetencyLevel, CurriculumFramework, CurriculumLearningArea, CurriculumTopic,
-    CurriculumValue, LearningOutcome, LessonPlan, PortfolioItem, Rubric,
-    ProjectMilestone, RubricCriterion, RubricLevel, SchemeOfWork, SchemeWeek, Skill,
+    CurriculumValue, EvidenceAsset, LearningOutcome, LessonPlan, PortfolioItem, ProjectTeam,
+    ProjectTeamMember, Rubric, ProjectMilestone, RubricCriterion, RubricLevel, SchemeOfWork, SchemeWeek, Skill,
     TeacherObservation,
 )
 
@@ -68,7 +68,7 @@ class SubmissionForm(StyledModelForm):
 class CurriculumFrameworkForm(StyledModelForm):
     class Meta:
         model = CurriculumFramework
-        fields = ("name", "stage", "version", "implementation_year", "authority", "description", "is_active")
+        fields = ("name", "stage", "version", "implementation_year", "authority", "description", "effective_from", "effective_to", "source_reference", "supersedes")
 
 
 class CurriculumValueForm(StyledModelForm):
@@ -137,14 +137,32 @@ class AssessmentPolicyForm(StyledModelForm):
 class AssessmentEvidenceForm(StyledModelForm):
     class Meta:
         model = AssessmentEvidence
-        fields = ("assessment", "student", "method", "note", "attachment")
+        fields = ("assessment", "student", "method", "note", "context_notes", "attachment", "learning_outcomes", "competencies")
+
+
+class EvidenceAssetForm(StyledModelForm):
+    class Meta:
+        model = EvidenceAsset
+        fields = ("media_type", "file", "external_url", "caption", "transcript", "duration_seconds")
+
+
+class ProjectTeamForm(StyledModelForm):
+    class Meta:
+        model = ProjectTeam
+        fields = ("name", "driving_question", "community_partner", "mentor", "status")
+
+
+class ProjectTeamMemberForm(StyledModelForm):
+    class Meta:
+        model = ProjectTeamMember
+        fields = ("student", "role", "joined_on", "contribution_notes", "learner_reflection")
 
 
 class PortfolioItemForm(StyledModelForm):
     class Meta:
         model = PortfolioItem
         fields = (
-            "student", "term", "subject", "assessment", "project_milestone", "learning_outcome", "category",
+            "student", "term", "subject", "assessment", "project_milestone", "project_team", "learning_outcome", "category",
             "title", "description", "attachment", "external_url", "reflection_notes",
         )
         widgets = {
@@ -229,7 +247,7 @@ class LessonPlanForm(StyledModelForm):
 
 
 class CurriculumImportForm(forms.Form):
-    framework = forms.ModelChoiceField(queryset=CurriculumFramework.objects.filter(is_deleted=False, is_active=True))
+    framework = forms.ModelChoiceField(queryset=CurriculumFramework.objects.filter(is_deleted=False, status="draft"))
     csv_file = forms.FileField(help_text="UTF-8 CSV using the curriculum import template; maximum 5 MB.")
 
     def __init__(self, *args, **kwargs):

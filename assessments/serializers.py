@@ -4,9 +4,9 @@ from .models import (
     ActivityOfIntegration, Assessment, AssessmentEvidence, AssessmentPolicy, AssessmentResult,
     AssessmentReview, AssessmentScale, AssessmentSubmission, AssessmentType, Competency, CompetencyAssessment,
     CompetencyIndicator, CompetencyLevel, CurriculumFramework, CurriculumLearningArea,
-    CurriculumTopic, CurriculumValue, LearnerSkillRating, LearnerValueRating, LearningOutcome,
+    CurriculumTopic, CurriculumValue, EvidenceAsset, LearnerSkillRating, LearnerValueRating, LearningOutcome,
     LearningOutcomeAssessment, LessonPlan, PortfolioItem, ProjectMilestone, Rubric, RubricCriterion, RubricLevel,
-    RubricRating, SchemeOfWork, SchemeWeek, Skill, TeacherObservation,
+    ProjectTeam, ProjectTeamMember, RubricRating, SchemeOfWork, SchemeWeek, Skill, TeacherObservation,
 )
 
 
@@ -47,3 +47,6 @@ PortfolioItemSerializer = serializer_for(PortfolioItem, ("uploaded_by", "verifie
 ProjectMilestoneSerializer = serializer_for(ProjectMilestone)
 TeacherObservationSerializer = serializer_for(TeacherObservation, ("observed_by",))
 AssessmentReviewSerializer = serializer_for(AssessmentReview, ("reviewer", "reviewed_at"))
+EvidenceAssetSerializer = serializer_for(EvidenceAsset, ("captured_by",))
+ProjectTeamSerializer = serializer_for(ProjectTeam)
+ProjectTeamMemberSerializer = serializer_for(ProjectTeamMember)

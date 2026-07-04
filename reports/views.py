@@ -29,6 +29,7 @@ from config.audit import record_audit
 from config.mixins import ACADEMIC_MANAGERS, ACADEMIC_STAFF, AcademicManagerRequiredMixin, AcademicStaffRequiredMixin
 from students.models import Student
 from .forms import ReportCardReviewForm, ReportGenerationForm, TranscriptGenerationForm
+from .growth import learner_growth_profile
 from .models import AcademicTranscript, ReportCard, ReportSubjectResult
 from .services import generate_academic_transcript, generate_stream_reports
 
@@ -164,6 +165,32 @@ def visible_transcripts(user):
     if user.role == "parent":
         return qs.filter(Q(student__parent=user) | Q(student__guardian_links__guardian__user=user), status="issued").distinct()
     return qs.none()
+
+
+def visible_growth_students(user):
+    qs = Student.objects.filter(is_deleted=False).select_related("stream", "stream__class_level")
+    if user.is_superuser or user.role in ACADEMIC_MANAGERS:
+        return qs
+    if user.role == "teacher":
+        return qs.filter(Q(stream__class_teacher=user) | Q(stream__subject_allocations__teacher=user)).distinct()
+    if user.role == "student":
+        return qs.filter(user=user)
+    if user.role == "parent":
+        return qs.filter(Q(parent=user) | Q(guardian_links__guardian__user=user)).distinct()
+    return qs.none()
+
+
+class LearnerGrowthProfileView(LoginRequiredMixin, DetailView):
+    template_name = "reports/growth_profile.html"
+    context_object_name = "student"
+
+    def get_queryset(self):
+        return visible_growth_students(self.request.user)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["growth"] = learner_growth_profile(self.object)
+        return context
 
 
 class ReportCardListView(LoginRequiredMixin, ListView):

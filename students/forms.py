@@ -2,7 +2,11 @@ from django import forms
 
 from academics.models import AcademicYear, Stream, Term
 from config.forms import StyledModelForm
-from .models import Enrollment, Guardian, Student, StudentGuardian, StudentMovement, StudentPromotion, StudentSubjectRegistration
+from .models import (
+    Enrollment, Guardian, Student, StudentAccommodation, StudentAchievement,
+    StudentGuardian, StudentInterest, StudentMovement, StudentPromotion,
+    StudentSubjectRegistration,
+)
 
 
 class StudentForm(StyledModelForm):
@@ -59,6 +63,30 @@ class StudentMovementForm(StyledModelForm):
     class Meta:
         model = StudentMovement
         fields = ("student", "movement_type", "effective_date", "previous_school", "destination", "reason", "reference_number", "document")
+
+
+class StudentAccommodationForm(StyledModelForm):
+    class Meta:
+        model = StudentAccommodation
+        fields = ("category", "title", "need_description", "support_strategy", "start_date", "review_date", "end_date", "status", "confidential")
+        widgets = {
+            "need_description": forms.Textarea(attrs={"rows": 3}),
+            "support_strategy": forms.Textarea(attrs={"rows": 4}),
+        }
+
+
+class StudentInterestForm(StyledModelForm):
+    class Meta:
+        model = StudentInterest
+        fields = ("name", "category", "engagement_level", "notes", "first_observed", "is_active")
+        widgets = {"notes": forms.Textarea(attrs={"rows": 3})}
+
+
+class StudentAchievementForm(StyledModelForm):
+    class Meta:
+        model = StudentAchievement
+        fields = ("title", "category", "achievement_date", "level", "issuer", "description", "evidence", "external_reference")
+        widgets = {"description": forms.Textarea(attrs={"rows": 4})}
 
 
 class StudentImportForm(forms.Form):

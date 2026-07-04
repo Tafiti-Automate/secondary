@@ -1,8 +1,8 @@
 from rest_framework import serializers
 from .models import (
     ExamSession, Examination, ExaminationResult, GradeBoundary, GradeScale, UNEBCandidate,
-    UNEBCandidateSubject, UNEBContinuousAssessment, UNEBExportBatch, UpperAssessmentComponent,
-    UpperAssessmentPlan, UpperSubjectResult,
+    UNEBCandidateSubject, UNEBContinuousAssessment, UNEBExportBatch, UNEBIntegrationAdapter,
+    UpperAssessmentComponent, UpperAssessmentPlan, UpperSubjectResult,
 )
 
 
@@ -20,6 +20,7 @@ UNEBCandidateSerializer = serializer_for(UNEBCandidate, ("verified_by", "verifie
 UNEBCandidateSubjectSerializer = serializer_for(UNEBCandidateSubject)
 UNEBContinuousAssessmentSerializer = serializer_for(UNEBContinuousAssessment, ("entered_by", "verified_by", "approved_by", "percentage_score", "verified_at", "approved_at"))
 UNEBExportBatchSerializer = serializer_for(UNEBExportBatch, ("generated_by", "generated_at", "record_count", "checksum"))
+UNEBIntegrationAdapterSerializer = serializer_for(UNEBIntegrationAdapter, ("approved_by", "approved_at"))
 UpperAssessmentPlanSerializer = serializer_for(UpperAssessmentPlan, ("approved_by", "approved_at"))
 UpperAssessmentComponentSerializer = serializer_for(UpperAssessmentComponent)
 UpperSubjectResultSerializer = serializer_for(UpperSubjectResult, (

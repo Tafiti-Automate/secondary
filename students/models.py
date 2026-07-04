@@ -166,6 +166,30 @@ class StudentSubjectRegistration(BaseModel):
         ordering = ["subject__name"]
         constraints = [models.UniqueConstraint(fields=["enrollment", "subject"], condition=Q(is_deleted=False), name="unique_active_enrollment_subject")]
 
+    def clean(self):
+        if not self.enrollment_id or not self.subject_id:
+            return
+        curriculum = self.enrollment.stream.class_level.curriculum
+        expected = "lower" if curriculum == "lower" else "upper"
+        if self.subject.curriculum_level not in {expected, "both"}:
+            raise ValidationError({"subject": f"This subject is not available for {expected} secondary."})
+        level = self.enrollment.stream.class_level.level
+        if self.status == "active" and level in {1, 2, 3, 4}:
+            maximum = 12 if level in {1, 2} else 9
+            active_count = StudentSubjectRegistration.objects.filter(
+                enrollment=self.enrollment,
+                status="active",
+                is_deleted=False,
+            ).exclude(pk=self.pk).count()
+            if active_count >= maximum:
+                raise ValidationError(f"{self.enrollment.stream.class_level} permits at most {maximum} active subjects.")
+        if self.status == "dropped" and not self.dropped_on:
+            raise ValidationError({"dropped_on": "Record the date when a subject is dropped."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.enrollment.student} · {self.subject}"
 
@@ -228,3 +252,108 @@ class StudentPromotion(BaseModel):
 
     def __str__(self):
         return f"{self.student} · {self.get_decision_display()}"
+
+
+class StudentAccommodation(BaseModel):
+    CATEGORY_CHOICES = [
+        ("learning", "Learning support"), ("visual", "Visual access"),
+        ("hearing", "Hearing access"), ("mobility", "Mobility access"),
+        ("medical", "Medical support"), ("language", "Language support"),
+        ("assessment", "Assessment access arrangement"), ("other", "Other"),
+    ]
+    student = models.ForeignKey(Student, related_name="accommodations", on_delete=models.CASCADE)
+    category = models.CharField(max_length=24, choices=CATEGORY_CHOICES)
+    title = models.CharField(max_length=160)
+    need_description = models.TextField()
+    support_strategy = models.TextField()
+    start_date = models.DateField(default=timezone.localdate)
+    review_date = models.DateField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=[("active", "Active"), ("review", "Due for review"), ("ended", "Ended")], default="active")
+    confidential = models.BooleanField(default=True)
+    recorded_by = models.ForeignKey(User, related_name="recorded_student_accommodations", on_delete=models.SET_NULL, null=True)
+    reviewed_by = models.ForeignKey(User, related_name="reviewed_student_accommodations", on_delete=models.SET_NULL, null=True, blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-start_date", "category", "title"]
+
+    def clean(self):
+        if self.end_date and self.end_date < self.start_date:
+            raise ValidationError({"end_date": "End date cannot precede the accommodation start date."})
+        if self.review_date and self.review_date < self.start_date:
+            raise ValidationError({"review_date": "Review date cannot precede the accommodation start date."})
+        if self.status == "ended" and not self.end_date:
+            raise ValidationError({"end_date": "An ended accommodation requires an end date."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.student.full_name} · {self.title}"
+
+
+class StudentInterest(BaseModel):
+    CATEGORY_CHOICES = [
+        ("academic", "Academic"), ("creative", "Creative arts"),
+        ("sport", "Sport"), ("vocational", "Vocational"),
+        ("technology", "Technology"), ("community", "Community service"),
+        ("leadership", "Leadership"), ("other", "Other"),
+    ]
+    student = models.ForeignKey(Student, related_name="interests", on_delete=models.CASCADE)
+    name = models.CharField(max_length=120)
+    category = models.CharField(max_length=24, choices=CATEGORY_CHOICES, default="academic")
+    engagement_level = models.CharField(max_length=20, choices=[("exploring", "Exploring"), ("active", "Actively engaged"), ("advanced", "Advanced")], default="exploring")
+    notes = models.TextField(blank=True)
+    first_observed = models.DateField(default=timezone.localdate)
+    is_active = models.BooleanField(default=True)
+    recorded_by = models.ForeignKey(User, related_name="recorded_student_interests", on_delete=models.SET_NULL, null=True)
+
+    class Meta:
+        ordering = ["category", "name"]
+        constraints = [
+            models.UniqueConstraint(fields=["student", "name"], condition=Q(is_deleted=False), name="unique_active_student_interest")
+        ]
+
+    def __str__(self):
+        return f"{self.student.full_name} · {self.name}"
+
+
+class StudentAchievement(BaseModel):
+    CATEGORY_CHOICES = [
+        ("academic", "Academic"), ("project", "Project"), ("leadership", "Leadership"),
+        ("sport", "Sport"), ("arts", "Creative arts"), ("vocational", "Vocational"),
+        ("community", "Community service"), ("innovation", "Innovation"), ("other", "Other"),
+    ]
+    LEVEL_CHOICES = [
+        ("school", "School"), ("district", "District"), ("regional", "Regional"),
+        ("national", "National"), ("international", "International"),
+    ]
+    student = models.ForeignKey(Student, related_name="achievements", on_delete=models.CASCADE)
+    title = models.CharField(max_length=180)
+    category = models.CharField(max_length=24, choices=CATEGORY_CHOICES)
+    achievement_date = models.DateField()
+    level = models.CharField(max_length=20, choices=LEVEL_CHOICES, default="school")
+    issuer = models.CharField(max_length=180, blank=True)
+    description = models.TextField(blank=True)
+    evidence = models.FileField(upload_to="student-achievements/%Y/", null=True, blank=True)
+    external_reference = models.URLField(blank=True)
+    verified_by = models.ForeignKey(User, related_name="verified_student_achievements", on_delete=models.SET_NULL, null=True, blank=True)
+    verified_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-achievement_date", "title"]
+
+    def clean(self):
+        if self.achievement_date and self.achievement_date > timezone.localdate():
+            raise ValidationError({"achievement_date": "Achievement date cannot be in the future."})
+        if self.verified_by_id and not self.verified_at:
+            self.verified_at = timezone.now()
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.student.full_name} · {self.title}"

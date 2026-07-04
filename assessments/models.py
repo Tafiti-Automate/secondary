@@ -90,10 +90,55 @@ class CurriculumFramework(BaseModel):
     implementation_year = models.PositiveIntegerField(default=2026)
     authority = models.CharField(max_length=120, default="National Curriculum Development Centre")
     description = models.TextField(blank=True)
+    status = models.CharField(max_length=20, choices=[("draft", "Draft"), ("published", "Published"), ("retired", "Retired")], default="draft")
+    effective_from = models.DateField(null=True, blank=True)
+    effective_to = models.DateField(null=True, blank=True)
+    source_reference = models.URLField(blank=True)
+    supersedes = models.ForeignKey("self", related_name="successor_versions", on_delete=models.PROTECT, null=True, blank=True)
+    published_by = models.ForeignKey(User, related_name="published_curriculum_frameworks", on_delete=models.SET_NULL, null=True, blank=True)
+    published_at = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
 
     class Meta:
         ordering = ["stage", "-implementation_year"]
+
+    def clean(self):
+        if self.effective_from and self.effective_to and self.effective_to < self.effective_from:
+            raise ValidationError({"effective_to": "The version end date cannot precede its start date."})
+        if self.supersedes_id:
+            if self.supersedes_id == self.pk:
+                raise ValidationError({"supersedes": "A curriculum version cannot supersede itself."})
+            if self.supersedes.stage != self.stage:
+                raise ValidationError({"supersedes": "Curriculum versions must belong to the same stage."})
+        if self.status == "published" and not self.published_by_id:
+            raise ValidationError({"published_by": "A published curriculum version requires an approving officer."})
+
+    def save(self, *args, **kwargs):
+        self.is_active = self.status in {"draft", "published"}
+        if self.status == "published" and self.published_by_id and not self.published_at:
+            self.published_at = timezone.now()
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    @transaction.atomic
+    def transition(self, operation, user):
+        if operation == "publish" and self.status == "draft":
+            if not self.topics.filter(is_deleted=False, learning_outcomes__is_deleted=False).exists():
+                raise ValidationError("Import at least one topic and learning outcome before publication.")
+            self.status, self.published_by, self.published_at = "published", user, timezone.now()
+            if self.supersedes_id:
+                CurriculumFramework.objects.filter(pk=self.supersedes_id).update(
+                    status="retired", is_active=False, effective_to=self.effective_from,
+                )
+        elif operation == "retire" and self.status == "published":
+            self.status, self.is_active = "retired", False
+            if not self.effective_to:
+                self.effective_to = timezone.localdate()
+        elif operation == "reopen" and self.status == "draft":
+            return
+        else:
+            raise ValidationError("That curriculum-version transition is not allowed.")
+        self.save()
 
     def __str__(self):
         return f"{self.name} ({self.version or self.implementation_year})"
@@ -496,6 +541,54 @@ class ProjectMilestone(BaseModel):
         return f"{self.assessment} · {self.title}"
 
 
+class ProjectTeam(BaseModel):
+    assessment = models.ForeignKey(Assessment, related_name="project_teams", on_delete=models.CASCADE)
+    name = models.CharField(max_length=120)
+    driving_question = models.TextField(blank=True)
+    community_partner = models.CharField(max_length=180, blank=True)
+    mentor = models.ForeignKey(User, related_name="mentored_project_teams", on_delete=models.SET_NULL, null=True, blank=True)
+    status = models.CharField(max_length=20, choices=[("forming", "Forming"), ("active", "Active"), ("completed", "Completed"), ("archived", "Archived")], default="forming")
+
+    class Meta:
+        ordering = ["assessment", "name"]
+        constraints = [models.UniqueConstraint(fields=["assessment", "name"], condition=Q(is_deleted=False), name="unique_active_project_team_name")]
+
+    def clean(self):
+        if self.assessment_id and not self.assessment.project_enabled:
+            raise ValidationError({"assessment": "Project teams require a project assessment."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.assessment} · {self.name}"
+
+
+class ProjectTeamMember(BaseModel):
+    team = models.ForeignKey(ProjectTeam, related_name="members", on_delete=models.CASCADE)
+    student = models.ForeignKey(Student, related_name="project_memberships", on_delete=models.CASCADE)
+    role = models.CharField(max_length=80, blank=True)
+    joined_on = models.DateField(default=timezone.localdate)
+    contribution_notes = models.TextField(blank=True)
+    learner_reflection = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["team", "student__first_name", "student__last_name"]
+        constraints = [models.UniqueConstraint(fields=["team", "student"], condition=Q(is_deleted=False), name="unique_active_project_team_member")]
+
+    def clean(self):
+        if self.team_id and self.student_id and self.team.assessment.stream_id and self.student.stream_id != self.team.assessment.stream_id:
+            raise ValidationError({"student": "Learner is not currently assigned to the project's stream."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.team} · {self.student.full_name}"
+
+
 class AssessmentResult(BaseModel):
     assessment = models.ForeignKey(Assessment, related_name="results", on_delete=models.CASCADE)
     student = models.ForeignKey(Student, related_name="assessment_results", on_delete=models.CASCADE)
@@ -591,6 +684,9 @@ class AssessmentEvidence(BaseModel):
     method = models.CharField(max_length=20, choices=[("observation", "Observation"), ("conversation", "Conversation"), ("product", "Product")])
     note = models.TextField()
     attachment = models.FileField(upload_to="assessment-evidence/%Y/", null=True, blank=True)
+    learning_outcomes = models.ManyToManyField(LearningOutcome, related_name="evidence_records", blank=True)
+    competencies = models.ManyToManyField(Competency, related_name="evidence_records", blank=True)
+    context_notes = models.TextField(blank=True)
     captured_by = models.ForeignKey(User, related_name="captured_assessment_evidence", on_delete=models.SET_NULL, null=True)
     captured_at = models.DateTimeField(default=timezone.now)
 
@@ -609,6 +705,40 @@ class AssessmentEvidence(BaseModel):
 
     def __str__(self):
         return f"{self.student} · {self.get_method_display()}"
+
+
+class EvidenceAsset(BaseModel):
+    evidence = models.ForeignKey(AssessmentEvidence, related_name="assets", on_delete=models.CASCADE)
+    media_type = models.CharField(max_length=20, choices=[
+        ("image", "Image"), ("audio", "Audio"), ("video", "Video"),
+        ("document", "Document"), ("link", "External link"), ("text", "Text note"),
+    ])
+    file = models.FileField(upload_to="assessment-evidence/assets/%Y/", null=True, blank=True)
+    external_url = models.URLField(blank=True)
+    caption = models.CharField(max_length=240, blank=True)
+    transcript = models.TextField(blank=True)
+    mime_type = models.CharField(max_length=100, blank=True)
+    duration_seconds = models.PositiveIntegerField(null=True, blank=True)
+    captured_at = models.DateTimeField(default=timezone.now)
+    captured_by = models.ForeignKey(User, related_name="captured_evidence_assets", on_delete=models.SET_NULL, null=True)
+
+    class Meta:
+        ordering = ["captured_at", "pk"]
+
+    def clean(self):
+        if self.media_type == "link" and not self.external_url:
+            raise ValidationError({"external_url": "A link asset requires a URL."})
+        if self.media_type in {"image", "audio", "video", "document"} and not self.file:
+            raise ValidationError({"file": f"A {self.media_type} asset requires a file."})
+        if self.evidence_id and self.evidence.assessment.is_workflow_locked:
+            raise ValidationError("DOS-approved multimedia evidence is read-only.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.evidence} · {self.get_media_type_display()}"
 
 
 class RubricRating(BaseModel):
@@ -927,6 +1057,7 @@ class PortfolioItem(BaseModel):
     subject = models.ForeignKey(Subject, related_name="portfolio_items", on_delete=models.PROTECT, null=True, blank=True)
     assessment = models.ForeignKey(Assessment, related_name="portfolio_items", on_delete=models.SET_NULL, null=True, blank=True)
     project_milestone = models.ForeignKey(ProjectMilestone, related_name="portfolio_items", on_delete=models.SET_NULL, null=True, blank=True)
+    project_team = models.ForeignKey(ProjectTeam, related_name="portfolio_items", on_delete=models.SET_NULL, null=True, blank=True)
     learning_outcome = models.ForeignKey(LearningOutcome, related_name="portfolio_items", on_delete=models.SET_NULL, null=True, blank=True)
     category = models.CharField(max_length=24, choices=CATEGORY_CHOICES)
     title = models.CharField(max_length=180)
@@ -956,6 +1087,11 @@ class PortfolioItem(BaseModel):
                 raise ValidationError({"assessment": "Choose the milestone's project assessment."})
             elif self.project_milestone.assessment_id != self.assessment_id:
                 raise ValidationError({"project_milestone": "Milestone must belong to the selected assessment."})
+        if self.project_team_id:
+            if not self.assessment_id or self.project_team.assessment_id != self.assessment_id:
+                raise ValidationError({"project_team": "Project team must belong to the selected assessment."})
+            if not self.project_team.members.filter(student=self.student, is_deleted=False).exists():
+                raise ValidationError({"student": "Learner is not a member of the selected project team."})
         if self.status == "verified" and not self.verified_by_id:
             raise ValidationError({"verified_by": "A verified portfolio item requires a verifier."})
 

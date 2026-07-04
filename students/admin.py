@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Enrollment, Guardian, Student, StudentGuardian, StudentMovement, StudentPromotion, StudentSubjectRegistration
+from .models import Enrollment, Guardian, Student, StudentAccommodation, StudentAchievement, StudentGuardian, StudentInterest, StudentMovement, StudentPromotion, StudentSubjectRegistration
 
 
 @admin.register(Student)
@@ -10,4 +10,4 @@ class StudentAdmin(admin.ModelAdmin):
     search_fields = ("student_number", "admission_number", "first_name", "last_name", "other_names")
 
 
-admin.site.register([Guardian, StudentGuardian, Enrollment, StudentSubjectRegistration, StudentMovement, StudentPromotion])
+admin.site.register([Guardian, StudentGuardian, Enrollment, StudentSubjectRegistration, StudentMovement, StudentPromotion, StudentAccommodation, StudentInterest, StudentAchievement])

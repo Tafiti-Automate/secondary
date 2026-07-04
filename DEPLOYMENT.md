@@ -8,12 +8,14 @@ Copy `.env.example` to a secrets-managed environment and replace every placehold
 export SECRET_KEY='a-long-random-value'
 export DEBUG=False
 export ALLOWED_HOSTS='school.example.ug'
+export CSRF_TRUSTED_ORIGINS='https://school.example.ug'
 export DB_ENGINE=postgresql
 export DB_NAME=school_academics
 export DB_USER=school_app
 export DB_PASSWORD='strong-database-password'
 export DB_HOST=db
 export DB_PORT=5432
+export DB_SSLMODE=require
 ```
 
 Then run:
@@ -43,5 +45,11 @@ Persist PostgreSQL and `/app/media`, back both up daily, and test restoration re
 - Run `python manage.py process_notifications --retry-failed` from a scheduled worker when using queued provider delivery.
 - Put Redis or another shared backend behind `CACHES` when running multiple workers.
 - Configure centralized logs, uptime monitoring and database/storage backups.
+- Import the school-authorised NCDC curriculum files for every offered subject/class/term.
+- Run `python manage.py check_school_readiness --production --fail-on-warnings` and resolve every finding.
 - Run `python manage.py check --deploy`, the full test suite, and a restore drill.
+- Before a UNEB workbook, run `python manage.py check_school_readiness --uneb-level uce --uneb-year YYYY`.
 - Train the academic office on term closing, exam approval, report publication and result locking.
+
+The operational security, backup and acceptance gates are detailed in
+`docs/PRODUCTION_READINESS.md` and `docs/SCHOOL_ACCEPTANCE_CHECKLIST.md`.

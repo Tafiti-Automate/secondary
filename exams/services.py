@@ -21,13 +21,15 @@ def _grade_for(plan, score):
 
 @transaction.atomic
 def process_upper_subject_results(plan, term, stream, user):
-    """Compile configured S5/S6 components into final subject results and rankings."""
+    """Compile the aligned S5/S6 annual plan into final subject results and rankings."""
     if plan.status not in {"approved", "locked"}:
         raise ValidationError("Approve the upper-secondary assessment plan before processing marks.")
     if plan.academic_year_id != term.academic_year_id:
         raise ValidationError("Assessment plan and term belong to different academic years.")
     if plan.class_level_id != stream.class_level_id:
         raise ValidationError("Assessment plan and stream belong to different class levels.")
+    if term.number != 3:
+        raise ValidationError("Aligned S5/S6 final subject results can only be processed in Term III.")
 
     components = list(plan.components.filter(is_deleted=False, is_active=True).order_by("sequence", "pk"))
     if sum((item.weight for item in components), Decimal("0")) != Decimal("100"):
@@ -45,7 +47,7 @@ def process_upper_subject_results(plan, term, stream, user):
                 ExaminationResult.objects.filter(
                     student=student,
                     examination__component=component,
-                    examination__term=term,
+                    examination__term__academic_year=plan.academic_year,
                     examination__stream=stream,
                     examination__status__in=("approved", "published", "locked"),
                     is_deleted=False,

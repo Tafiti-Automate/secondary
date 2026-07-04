@@ -5,9 +5,9 @@ from .api import (
     AssessmentResultViewSet, AssessmentReviewViewSet, AssessmentScaleViewSet, AssessmentTypeViewSet, AssessmentViewSet,
     CompetencyAssessmentViewSet, CompetencyIndicatorViewSet, CompetencyLevelViewSet,
     CompetencyViewSet, CurriculumFrameworkViewSet, CurriculumLearningAreaViewSet,
-    CurriculumTopicViewSet, CurriculumValueViewSet, LearnerSkillRatingViewSet,
+    CurriculumTopicViewSet, CurriculumValueViewSet, EvidenceAssetViewSet, LearnerSkillRatingViewSet,
     LearnerValueRatingViewSet, LearningOutcomeAssessmentViewSet, LearningOutcomeViewSet,
-    LessonPlanViewSet, PortfolioItemViewSet, ProjectMilestoneViewSet, RubricCriterionViewSet, RubricLevelViewSet,
+    LessonPlanViewSet, PortfolioItemViewSet, ProjectMilestoneViewSet, ProjectTeamMemberViewSet, ProjectTeamViewSet, RubricCriterionViewSet, RubricLevelViewSet,
     RubricRatingViewSet, RubricViewSet, SchemeOfWorkViewSet, SchemeWeekViewSet,
     SkillViewSet, SubmissionViewSet, TeacherObservationViewSet,
 )
@@ -20,6 +20,8 @@ router.register("competency-indicators", CompetencyIndicatorViewSet, basename="c
 router.register("assessment-types", AssessmentTypeViewSet, basename="assessment-type")
 router.register("assessments", AssessmentViewSet, basename="assessment")
 router.register("project-milestones", ProjectMilestoneViewSet, basename="project-milestone")
+router.register("project-teams", ProjectTeamViewSet, basename="project-team")
+router.register("project-team-members", ProjectTeamMemberViewSet, basename="project-team-member")
 router.register("results", AssessmentResultViewSet, basename="assessment-result")
 router.register("competency-assessments", CompetencyAssessmentViewSet, basename="competency-assessment")
 router.register("submissions", SubmissionViewSet, basename="submission")
@@ -35,6 +37,7 @@ router.register("rubric-levels", RubricLevelViewSet, basename="rubric-level")
 router.register("rubric-ratings", RubricRatingViewSet, basename="rubric-rating")
 router.register("assessment-policies", AssessmentPolicyViewSet, basename="assessment-policy")
 router.register("evidence", AssessmentEvidenceViewSet, basename="assessment-evidence")
+router.register("evidence-assets", EvidenceAssetViewSet, basename="evidence-asset")
 router.register("schemes-of-work", SchemeOfWorkViewSet, basename="scheme-of-work")
 router.register("scheme-weeks", SchemeWeekViewSet, basename="scheme-week")
 router.register("lesson-plans", LessonPlanViewSet, basename="lesson-plan")

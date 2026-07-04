@@ -117,6 +117,15 @@ class UpperAssessmentPlan(BaseModel):
                 raise ValidationError("Create the assessment plan as a draft, add components, then approve it.")
             if self.configured_weight != Decimal("100"):
                 raise ValidationError("Active upper-secondary assessment components must total exactly 100% before approval.")
+            summative_count = self.components.filter(
+                is_deleted=False,
+                is_active=True,
+                component_type="annual_summative",
+            ).count()
+            if summative_count != 1:
+                raise ValidationError(
+                    "An approved aligned S5/S6 plan must contain exactly one annual summative component."
+                )
             if not self.approved_by_id:
                 raise ValidationError({"approved_by": "An approved assessment plan requires an approving officer."})
 
@@ -132,10 +141,10 @@ class UpperAssessmentPlan(BaseModel):
 
 class UpperAssessmentComponent(BaseModel):
     COMPONENT_CHOICES = [
-        ("bot", "Beginning of term test"), ("midterm", "Midterm"), ("coursework", "Coursework"),
-        ("practical", "Practical"), ("project", "Project"), ("research", "Research"),
+        ("activity_integration", "Activity of Integration"), ("coursework", "Coursework"),
+        ("practical", "Practical"), ("project", "Project-based learning"), ("research", "Research"),
         ("laboratory", "Laboratory records"), ("fieldwork", "Field work"),
-        ("exam", "End of term examination"), ("holiday", "Holiday test"),
+        ("annual_summative", "Annual school summative assessment"),
     ]
     plan = models.ForeignKey(UpperAssessmentPlan, related_name="components", on_delete=models.CASCADE)
     name = models.CharField(max_length=120)
@@ -153,9 +162,17 @@ class UpperAssessmentComponent(BaseModel):
         ]
 
     def clean(self):
-        if self.plan_id and self.plan.status == "locked":
-            raise ValidationError("Components of a locked assessment plan cannot be changed.")
+        if self.plan_id and self.plan.status != "draft":
+            raise ValidationError("Reopen the assessment plan before changing its components.")
         if self.plan_id and self.is_active:
+            if self.component_type == "annual_summative" and self.plan.components.filter(
+                is_deleted=False,
+                is_active=True,
+                component_type="annual_summative",
+            ).exclude(pk=self.pk).exists():
+                raise ValidationError({
+                    "component_type": "Only one annual summative component is allowed in an aligned S5/S6 plan."
+                })
             other_weight = sum(
                 (component.weight for component in self.plan.components.filter(is_deleted=False, is_active=True).exclude(pk=self.pk)),
                 Decimal("0"),
@@ -202,8 +219,16 @@ class Examination(BaseModel):
             raise ValidationError("The stream and term must belong to the same academic year.")
         if self.session_id and self.term_id and self.session.term_id != self.term_id:
             raise ValidationError("The examination session and examination must belong to the same term.")
-        if self.stream_id and self.stream.class_level.curriculum == "upper" and self.is_school_summative and self.session_id and self.session.exam_type != "annual" and not self.component_id:
-            raise ValidationError({"session": "Advanced Secondary permits one school-based summative assessment annually; use an annual session."})
+        if self.stream_id and self.stream.class_level.curriculum == "upper" and self.is_school_summative:
+            is_annual_component = self.component_id and self.component.component_type == "annual_summative"
+            if not is_annual_component:
+                raise ValidationError({
+                    "component": "Aligned Advanced Secondary summative assessment must use the plan's annual summative component."
+                })
+            if not self.session_id or self.session.exam_type != "annual":
+                raise ValidationError({"session": "Advanced Secondary summative assessment requires an annual session."})
+            if self.term_id and self.term.number != 3:
+                raise ValidationError({"term": "The annual S5/S6 school summative assessment must be recorded in Term III."})
         if self.component_id:
             plan = self.component.plan
             if self.term_id and plan.academic_year_id != self.term.academic_year_id:
@@ -212,6 +237,8 @@ class Examination(BaseModel):
                 raise ValidationError({"component": "Component plan belongs to a different class level."})
             if self.subject_id and plan.subject_id != self.subject_id:
                 raise ValidationError({"component": "Component plan belongs to a different subject."})
+            if self.component.component_type != "annual_summative" and self.is_school_summative:
+                raise ValidationError({"is_school_summative": "Ongoing S5/S6 evidence is not a separate school summative examination."})
 
     def save(self, *args, **kwargs):
         if self.component_id:
@@ -389,6 +416,55 @@ class UpperSubjectResult(BaseModel):
         return f"{self.student} · {self.plan.subject} · {self.total_score}"
 
 
+class UNEBIntegrationAdapter(BaseModel):
+    ALLOWED_COLUMN_KEYS = {
+        "centre_number", "index_number", "candidate_name", "gender", "examination_level",
+        "examination_year", "subject_code", "subject_name", "class_level", "term",
+        "component", "raw_score", "maximum_score", "percentage_score", "evidence_reference",
+    }
+    name = models.CharField(max_length=160)
+    examination_level = models.CharField(max_length=10, choices=[("uce", "UCE"), ("uace", "UACE")])
+    version = models.CharField(max_length=40)
+    effective_from = models.DateField()
+    effective_to = models.DateField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=[("draft", "Draft"), ("active", "Active"), ("retired", "Retired")], default="draft")
+    columns = models.JSONField(default=list, blank=True, help_text="Ordered objects with header and key values.")
+    requirements = models.JSONField(default=dict, blank=True)
+    notes = models.TextField(blank=True)
+    approved_by = models.ForeignKey(User, related_name="approved_uneb_adapters", on_delete=models.SET_NULL, null=True, blank=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["examination_level", "-effective_from", "-version"]
+        constraints = [
+            models.UniqueConstraint(fields=["examination_level", "version"], condition=Q(is_deleted=False), name="unique_active_uneb_adapter_version")
+        ]
+
+    def clean(self):
+        if self.effective_to and self.effective_to < self.effective_from:
+            raise ValidationError({"effective_to": "Adapter end date cannot precede its start date."})
+        for index, column in enumerate(self.columns or [], 1):
+            if not isinstance(column, dict) or not column.get("header") or column.get("key") not in self.ALLOWED_COLUMN_KEYS:
+                raise ValidationError({"columns": f"Column {index} must contain a header and an allowed key."})
+        if self.status == "active" and not self.approved_by_id:
+            raise ValidationError({"approved_by": "An active UNEB adapter requires an approving officer."})
+
+    def save(self, *args, **kwargs):
+        if self.status == "active" and self.approved_by_id and not self.approved_at:
+            self.approved_at = timezone.now()
+        self.full_clean()
+        if self.status == "active":
+            UNEBIntegrationAdapter.objects.filter(
+                examination_level=self.examination_level,
+                status="active",
+                is_deleted=False,
+            ).exclude(pk=self.pk).update(status="retired")
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.examination_level.upper()} · {self.name} · {self.version}"
+
+
 class UNEBCandidate(BaseModel):
     student = models.ForeignKey(Student, related_name="uneb_candidates", on_delete=models.PROTECT)
     examination_level = models.CharField(max_length=10, choices=[("uce", "UCE"), ("uace", "UACE")])
@@ -436,9 +512,25 @@ class UNEBCandidateSubject(BaseModel):
         ordering = ["subject__name"]
         constraints = [models.UniqueConstraint(fields=["candidate", "subject"], condition=Q(is_deleted=False), name="unique_active_uneb_candidate_subject")]
 
+    def clean(self):
+        if not self.candidate_id or not self.subject_id:
+            return
+        expected_level = "lower" if self.candidate.examination_level == "uce" else "upper"
+        if self.subject.curriculum_level not in {expected_level, "both"}:
+            raise ValidationError({"subject": f"This subject is not configured for {expected_level} secondary."})
+        if self.is_registered and self.candidate.examination_level == "uce":
+            active_count = UNEBCandidateSubject.objects.filter(
+                candidate=self.candidate,
+                is_registered=True,
+                is_deleted=False,
+            ).exclude(pk=self.pk).count()
+            if active_count >= 9:
+                raise ValidationError("A CBC UCE candidate may register for a maximum of nine subjects.")
+
     def save(self, *args, **kwargs):
         if not self.subject_code:
             self.subject_code = self.subject.uneb_code or self.subject.code
+        self.full_clean()
         return super().save(*args, **kwargs)
 
     def __str__(self):
@@ -479,8 +571,18 @@ class UNEBContinuousAssessment(BaseModel):
         if self.term_id and self.candidate_subject_id:
             exam_year = self.candidate_subject.candidate.examination_year
             academic_year = self.term.academic_year
-            if exam_year not in {academic_year.start_date.year, academic_year.end_date.year}:
-                raise ValidationError({"term": "Term does not belong to the candidate's examination year."})
+            final_level = 4 if exam_level == "uce" else 6
+            expected_year = exam_year - (final_level - level)
+            if expected_year not in {academic_year.start_date.year, academic_year.end_date.year}:
+                raise ValidationError({
+                    "term": f"This {self.class_level} record should belong to academic year {expected_year}."
+                })
+        if self.status in {"verified", "approved", "exported"} and not self.evidence_reference:
+            raise ValidationError({"evidence_reference": "Verified UNEB CA requires an evidence reference."})
+        if self.status in {"verified", "approved", "exported"} and not self.verified_by_id:
+            raise ValidationError({"verified_by": "Verified UNEB CA requires a verifying officer."})
+        if self.status in {"approved", "exported"} and not self.approved_by_id:
+            raise ValidationError({"approved_by": "Approved UNEB CA requires an approving officer."})
 
     def save(self, *args, **kwargs):
         raw = Decimal(str(self.raw_score))
@@ -502,6 +604,9 @@ class UNEBExportBatch(BaseModel):
     checksum = models.CharField(max_length=64, blank=True)
     status = models.CharField(max_length=20, choices=[("generated", "Generated"), ("submitted", "Submitted externally"), ("accepted", "Accepted"), ("rejected", "Rejected")], default="generated")
     notes = models.TextField(blank=True)
+    adapter = models.ForeignKey(UNEBIntegrationAdapter, related_name="export_batches", on_delete=models.PROTECT, null=True, blank=True)
+    format_version = models.CharField(max_length=40, default="internal-pre-submission-v1")
+    validation_report = models.JSONField(default=dict, blank=True)
     records = models.ManyToManyField(UNEBContinuousAssessment, related_name="export_batches", blank=True)
 
     class Meta:

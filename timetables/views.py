@@ -1,14 +1,18 @@
+from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
+from django.views import View
 from django.views.generic import CreateView, TemplateView, UpdateView
 
 from academics.models import Stream, Term
 from config.crud import AuditedFormMixin, SoftDeleteView
 from config.mixins import AcademicManagerRequiredMixin
 from config.tables import ModelTableView
-from .forms import RoomForm, TimeSlotForm, TimetableEntryForm
-from .models import Room, TimeSlot, TimetableEntry
+from .forms import RoomForm, SchedulingRequirementForm, TimeSlotForm, TimetableEntryForm
+from .models import Room, SchedulingRequirement, TimeSlot, TimetableEntry, TimetableGenerationRun
+from .services import generate_conflict_free_timetable
 
 
 class TimetableGridView(LoginRequiredMixin, TemplateView):
@@ -61,3 +65,19 @@ class SetupUpdateView(AcademicManagerRequiredMixin, AuditedFormMixin, UpdateView
 
 class SetupDeleteView(AcademicManagerRequiredMixin, SoftDeleteView):
     pass
+
+
+class TimetableGenerateView(AcademicManagerRequiredMixin, View):
+    template_name = "timetables/generate.html"
+
+    def get(self, request):
+        return render(request, self.template_name, {"terms": Term.objects.filter(is_deleted=False), "runs": TimetableGenerationRun.objects.filter(is_deleted=False).select_related("term", "requested_by")[:15]})
+
+    def post(self, request):
+        term = get_object_or_404(Term, pk=request.POST.get("term"), is_deleted=False)
+        run = generate_conflict_free_timetable(term, request.user, dry_run=request.POST.get("dry_run") == "1")
+        if run.unresolved_count:
+            messages.warning(request, f"Scheduled {run.generated_count} lesson(s); {run.unresolved_count} could not be placed. Review the run details below.")
+        else:
+            messages.success(request, f"{'Simulated' if run.status == 'simulated' else 'Scheduled'} {run.generated_count} lesson(s) with no conflicts.")
+        return redirect("timetables:generate")

@@ -1,15 +1,16 @@
 from django.urls import path, reverse_lazy
-from .forms import RoomForm, TimeSlotForm, TimetableEntryForm
-from .models import Room, TimeSlot, TimetableEntry
-from .views import SetupCreateView, SetupDeleteView, SetupTableView, SetupUpdateView, TimetableGridView
+from .forms import RoomForm, SchedulingRequirementForm, TimeSlotForm, TimetableEntryForm
+from .models import Room, SchedulingRequirement, TimeSlot, TimetableEntry
+from .views import SetupCreateView, SetupDeleteView, SetupTableView, SetupUpdateView, TimetableGenerateView, TimetableGridView
 
 app_name = "timetables"
-urlpatterns = [path("", TimetableGridView.as_view(), name="grid")]
+urlpatterns = [path("", TimetableGridView.as_view(), name="grid"), path("generate/", TimetableGenerateView.as_view(), name="generate")]
 
 SETUP = {
     "entries": (TimetableEntry, TimetableEntryForm, ("Day", "Period", "Stream", "Subject", "Teacher", "Room"), ("get_day_of_week_display", "time_slot", "stream", "subject", "teacher", "room"), "Timetable entries"),
     "rooms": (Room, RoomForm, ("Room", "Type", "Capacity", "Location", "Active"), ("name", "get_room_type_display", "capacity", "location", "is_active"), "Rooms"),
     "time-slots": (TimeSlot, TimeSlotForm, ("Period", "Starts", "Ends", "Type", "Order"), ("name", "start_time", "end_time", "get_slot_type_display", "display_order"), "Time slots"),
+    "requirements": (SchedulingRequirement, SchedulingRequirementForm, ("Allocation", "Room type", "Preferred room", "Daily maximum"), ("allocation", "get_required_room_type_display", "preferred_room", "max_lessons_per_day"), "Scheduling requirements"),
 }
 for slug, (model, form, columns, fields, title) in SETUP.items():
     list_name, add_name, edit_name, delete_name = f"{slug}-list", f"{slug}-add", f"{slug}-edit", f"{slug}-delete"

@@ -26,7 +26,7 @@ class LoginForm(StyledFormMixin, AuthenticationForm):
 class UserCreateForm(StyledFormMixin, UserCreationForm):
     class Meta(UserCreationForm.Meta):
         model = User
-        fields = ("username", "first_name", "last_name", "email", "phone", "role", "profile_picture", "is_active")
+        fields = ("username", "first_name", "last_name", "email", "phone", "preferred_language", "role", "profile_picture", "is_active")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -38,7 +38,7 @@ class UserUpdateForm(StyledFormMixin, UserChangeForm):
 
     class Meta:
         model = User
-        fields = ("first_name", "last_name", "email", "phone", "role", "profile_picture", "is_active")
+        fields = ("first_name", "last_name", "email", "phone", "preferred_language", "role", "profile_picture", "is_active")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -48,7 +48,7 @@ class UserUpdateForm(StyledFormMixin, UserChangeForm):
 class ProfileForm(StyledFormMixin, forms.ModelForm):
     class Meta:
         model = User
-        fields = ("first_name", "last_name", "email", "phone", "profile_picture")
+        fields = ("first_name", "last_name", "email", "phone", "preferred_language", "profile_picture")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

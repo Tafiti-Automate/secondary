@@ -2,9 +2,9 @@ from django.db import models
 from rest_framework import viewsets
 
 from config.mixins import ACADEMIC_MANAGERS, ACADEMIC_STAFF
-from config.permissions import IsAcademicManager, IsReadOnlyOrAcademicStaff
-from .models import Enrollment, Guardian, Student, StudentGuardian, StudentMovement, StudentPromotion, StudentSubjectRegistration
-from .serializers import EnrollmentSerializer, GuardianSerializer, StudentGuardianSerializer, StudentMovementSerializer, StudentPromotionSerializer, StudentSerializer, StudentSubjectRegistrationSerializer
+from config.permissions import IsAcademicManager, IsAcademicStaff, IsReadOnlyOrAcademicStaff
+from .models import Enrollment, Guardian, Student, StudentAccommodation, StudentAchievement, StudentGuardian, StudentInterest, StudentMovement, StudentPromotion, StudentSubjectRegistration
+from .serializers import EnrollmentSerializer, GuardianSerializer, StudentAccommodationSerializer, StudentAchievementSerializer, StudentGuardianSerializer, StudentInterestSerializer, StudentMovementSerializer, StudentPromotionSerializer, StudentSerializer, StudentSubjectRegistrationSerializer
 
 
 class ScopedStudentViewSet(viewsets.ModelViewSet):
@@ -66,3 +66,47 @@ class StudentMovementViewSet(ManagerViewSet):
 
     def perform_create(self, serializer):
         serializer.save(authorised_by=self.request.user)
+
+
+class StudentRelatedViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAcademicStaff]
+
+    def get_queryset(self):
+        qs = self.queryset.filter(is_deleted=False)
+        user = self.request.user
+        if user.is_superuser or user.role in ACADEMIC_MANAGERS:
+            return qs
+        if user.role == "teacher":
+            return qs.filter(
+                models.Q(student__stream__class_teacher=user)
+                | models.Q(student__stream__subject_allocations__teacher=user)
+            ).distinct()
+        return qs.none()
+
+    def perform_destroy(self, instance):
+        instance.soft_delete()
+
+
+class StudentInterestViewSet(StudentRelatedViewSet):
+    queryset = StudentInterest.objects.all()
+    serializer_class = StudentInterestSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(recorded_by=self.request.user)
+
+
+class StudentAchievementViewSet(StudentRelatedViewSet):
+    queryset = StudentAchievement.objects.all()
+    serializer_class = StudentAchievementSerializer
+
+    def perform_create(self, serializer):
+        verified_by = self.request.user if self.request.user.is_superuser or self.request.user.role in ACADEMIC_MANAGERS else None
+        serializer.save(verified_by=verified_by)
+
+
+class StudentAccommodationViewSet(ManagerViewSet):
+    queryset = StudentAccommodation.objects.all()
+    serializer_class = StudentAccommodationSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(recorded_by=self.request.user)

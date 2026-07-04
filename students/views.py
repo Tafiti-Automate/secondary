@@ -16,8 +16,9 @@ from academics.models import AcademicYear, Stream
 from reports.models import ReportCard
 from config.crud import AuditedFormMixin, SoftDeleteView
 from config.mixins import ACADEMIC_STAFF, AcademicManagerRequiredMixin, AcademicStaffRequiredMixin
-from .forms import BulkPromotionForm, EnrollmentForm, GuardianForm, PromotionForm, StudentForm, StudentGuardianForm, StudentImportForm, StudentMovementForm, SubjectRegistrationForm
-from .models import Enrollment, Guardian, Student, StudentGuardian, StudentMovement, StudentPromotion, StudentSubjectRegistration
+from .forms import BulkPromotionForm, EnrollmentForm, GuardianForm, PromotionForm, StudentAccommodationForm, StudentAchievementForm, StudentForm, StudentGuardianForm, StudentImportForm, StudentInterestForm, StudentMovementForm, SubjectRegistrationForm
+from .models import Enrollment, Guardian, Student, StudentAccommodation, StudentAchievement, StudentGuardian, StudentInterest, StudentMovement, StudentPromotion, StudentSubjectRegistration
+from .timeline import learner_timeline
 
 
 def scoped_students(user):
@@ -64,7 +65,95 @@ class StudentDetailView(LoginRequiredMixin, DetailView):
     context_object_name = "student"
 
     def get_queryset(self):
-        return scoped_students(self.request.user).prefetch_related("guardian_links__guardian", "enrollments", "promotions", "assessment_results", "exam_results")
+        return scoped_students(self.request.user).prefetch_related(
+            "guardian_links__guardian", "enrollments", "promotions", "assessment_results",
+            "exam_results", "accommodations", "interests", "achievements",
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
+        context["can_view_private_profile"] = bool(
+            user.is_superuser
+            or user.role in {"super_admin", "headteacher", "director_of_studies", "parent", "student"}
+        )
+        events = learner_timeline(self.object)
+        if not context["can_view_private_profile"]:
+            events = [event for event in events if not (
+                event.category == "support" and getattr(event.source, "confidential", False)
+            )]
+        context["recent_timeline"] = events[:6]
+        return context
+
+
+class StudentTimelineView(LoginRequiredMixin, DetailView):
+    model = Student
+    template_name = "students/timeline.html"
+    context_object_name = "student"
+
+    def get_queryset(self):
+        return scoped_students(self.request.user)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        can_view_private = bool(
+            self.request.user.is_superuser
+            or self.request.user.role in {"super_admin", "headteacher", "director_of_studies", "parent", "student"}
+        )
+        events = learner_timeline(self.object)
+        if not can_view_private:
+            events = [event for event in events if not (
+                event.category == "support" and getattr(event.source, "confidential", False)
+            )]
+        context["timeline"] = events
+        context["can_view_private_profile"] = can_view_private
+        return context
+
+
+class StudentRelatedCreateMixin:
+    student = None
+
+    def dispatch(self, request, *args, **kwargs):
+        self.student = get_object_or_404(scoped_students(request.user), pk=kwargs["pk"])
+        return super().dispatch(request, *args, **kwargs)
+
+    def form_valid(self, form):
+        form.instance.student = self.student
+        form.instance.recorded_by = self.request.user
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse("students:timeline", args=[self.student.pk])
+
+
+class StudentAccommodationCreateView(AcademicManagerRequiredMixin, StudentRelatedCreateMixin, AuditedFormMixin, CreateView):
+    model = StudentAccommodation
+    form_class = StudentAccommodationForm
+    template_name = "shared/form.html"
+    audit_action = "create"
+    extra_context = {"page_title": "Add learner accommodation", "eyebrow": "Learning support", "submit_label": "Save accommodation"}
+
+
+class StudentInterestCreateView(AcademicStaffRequiredMixin, StudentRelatedCreateMixin, AuditedFormMixin, CreateView):
+    model = StudentInterest
+    form_class = StudentInterestForm
+    template_name = "shared/form.html"
+    audit_action = "create"
+    extra_context = {"page_title": "Record learner interest", "eyebrow": "Whole learner profile", "submit_label": "Save interest"}
+
+
+class StudentAchievementCreateView(AcademicStaffRequiredMixin, StudentRelatedCreateMixin, AuditedFormMixin, CreateView):
+    model = StudentAchievement
+    form_class = StudentAchievementForm
+    template_name = "shared/form.html"
+    audit_action = "create"
+    extra_context = {"page_title": "Record learner achievement", "eyebrow": "Whole learner profile", "submit_label": "Save achievement"}
+
+    def form_valid(self, form):
+        form.instance.student = self.student
+        if self.request.user.is_superuser or self.request.user.role in {"super_admin", "headteacher", "director_of_studies"}:
+            form.instance.verified_by = self.request.user
+        return super(StudentRelatedCreateMixin, self).form_valid(form)
 
 
 class StudentAcademicHistoryView(LoginRequiredMixin, DetailView):

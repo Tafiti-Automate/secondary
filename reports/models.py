@@ -5,7 +5,10 @@ from django.utils import timezone
 
 from academics.models import AcademicYear, ClassLevel, Stream, Subject, Term
 from accounts.models import User
-from assessments.models import Competency, CompetencyLevel, CurriculumValue, LearningOutcome, Skill
+from assessments.models import (
+    Competency, CompetencyLevel, CurriculumValue, LearningOutcome,
+    LearningOutcomeAssessment, Skill,
+)
 from config.models import BaseModel
 from students.models import Student
 

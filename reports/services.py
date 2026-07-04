@@ -11,7 +11,7 @@ from assessments.models import (
 from assessments.services import continuous_assessment_score
 from attendance.models import AttendanceRecord
 from exams.models import ExaminationResult, GradeBoundary, UpperSubjectResult
-from students.models import Student
+from students.models import Enrollment, Student
 from .models import (
     AcademicTranscript, ReportCard, ReportCompetencyRating, ReportLearningOutcomeRating,
     ReportSkillRating, ReportSubjectResult, ReportValueRating, TranscriptEntry,
@@ -26,47 +26,66 @@ def grade_for(score, scale=None):
     return boundaries.order_by("-minimum_score").first()
 
 
-def resolve_policy(student, term, policy=None):
+def enrollment_stream_for(student, term):
+    """Resolve placement from the academic year, never from a later promotion."""
+    enrollment = (
+        Enrollment.objects.filter(
+            student=student,
+            academic_year=term.academic_year,
+            is_deleted=False,
+        )
+        .select_related("stream__class_level")
+        .first()
+    )
+    if enrollment:
+        return enrollment.stream, enrollment
+    if student.stream_id and student.stream.academic_year_id == term.academic_year_id:
+        return student.stream, None
+    raise ValidationError(
+        f"No enrolment placement exists for {student.full_name} in {term.academic_year}."
+    )
+
+
+def resolve_policy(student, term, policy=None, stream=None):
+    stream = stream or enrollment_stream_for(student, term)[0]
     if policy:
         if policy.academic_year_id != term.academic_year_id:
             raise ValidationError("Assessment policy and term must belong to the same academic year.")
-        if policy.class_level_id and student.stream and policy.class_level_id != student.stream.class_level_id:
+        if policy.class_level_id and policy.class_level_id != stream.class_level_id:
             raise ValidationError("Assessment policy does not match the learner's class level.")
         return policy
-    if not student.stream_id:
-        raise ValidationError("Student must have a current stream before report generation.")
-    policy = AssessmentPolicy.objects.filter(academic_year=term.academic_year, class_level=student.stream.class_level, is_active=True, is_deleted=False, purpose="internal").first()
+    policy = AssessmentPolicy.objects.filter(academic_year=term.academic_year, class_level=stream.class_level, is_active=True, is_deleted=False, purpose="internal").first()
     if not policy:
-        raise ValidationError(f"No active internal assessment policy is configured for {student.stream.class_level}.")
+        raise ValidationError(f"No active internal assessment policy is configured for {stream.class_level}.")
     return policy
 
 
 @transaction.atomic
 def generate_report_card(student, term, user, policy=None):
-    policy = resolve_policy(student, term, policy)
+    report_stream, enrollment = enrollment_stream_for(student, term)
+    policy = resolve_policy(student, term, policy, report_stream)
     card, _ = ReportCard.objects.get_or_create(
         student=student, term=term,
-        defaults={"stream": student.stream, "generated_by": user, "assessment_policy": policy},
+        defaults={"stream": report_stream, "generated_by": user, "assessment_policy": policy},
     )
     if card.status == "locked":
         return card
-    card.stream, card.generated_by, card.assessment_policy = student.stream, user, policy
+    card.stream, card.generated_by, card.assessment_policy = report_stream, user, policy
     card.ca_weight, card.exam_weight = policy.ongoing_weight, policy.summative_weight
 
-    subject_ids = set(student.stream.subject_allocations.filter(term=term, is_deleted=False).values_list("subject_id", flat=True)) if student.stream else set()
-    enrollment = student.enrollments.filter(academic_year=term.academic_year, is_deleted=False).first()
+    subject_ids = set(report_stream.subject_allocations.filter(term=term, is_deleted=False).values_list("subject_id", flat=True))
     if enrollment:
         subject_ids.update(enrollment.subject_registrations.filter(status="active", is_deleted=False).values_list("subject_id", flat=True))
-    subject_ids.update(student.exam_results.filter(examination__term=term, is_deleted=False).values_list("examination__subject_id", flat=True))
-    subject_ids.update(student.assessment_results.filter(assessment__term=term, is_deleted=False).values_list("assessment__subject_id", flat=True))
+    subject_ids.update(student.exam_results.filter(examination__term=term, examination__stream=report_stream, is_deleted=False).values_list("examination__subject_id", flat=True))
+    subject_ids.update(student.assessment_results.filter(assessment__term=term, assessment__stream=report_stream, is_deleted=False).values_list("assessment__subject_id", flat=True))
 
     from academics.models import Subject
     missing_count = 0
     for subject in Subject.objects.filter(pk__in=subject_ids):
-        ongoing_qs = AssessmentResult.objects.filter(student=student, assessment__subject=subject, assessment__term=term, assessment__status__in=("published", "closed", "moderated"), is_deleted=False)
+        ongoing_qs = AssessmentResult.objects.filter(student=student, assessment__subject=subject, assessment__term=term, assessment__stream=report_stream, assessment__status__in=("published", "closed", "moderated"), is_deleted=False)
         ongoing_available = ongoing_qs.exists()
-        ongoing = continuous_assessment_score(student, subject, term, student.stream) if ongoing_available else Decimal("0.00")
-        exam_result = ExaminationResult.objects.filter(student=student, examination__term=term, examination__subject=subject, examination__status__in=("approved", "published", "locked"), is_deleted=False).select_related("examination__session__grade_scale").order_by("-examination__exam_date", "-pk").first()
+        ongoing = continuous_assessment_score(student, subject, term, report_stream) if ongoing_available else Decimal("0.00")
+        exam_result = ExaminationResult.objects.filter(student=student, examination__term=term, examination__subject=subject, examination__stream=report_stream, examination__status__in=("approved", "published", "locked"), is_deleted=False).select_related("examination__session__grade_scale").order_by("-examination__exam_date", "-pk").first()
         summative_available = bool(exam_result)
         summative_required = policy.summative_frequency == "termly" or (policy.summative_frequency == "annual" and term.number == 3)
         exam = exam_result.percentage if exam_result else Decimal("0.00")
@@ -106,7 +125,16 @@ def generate_report_card(student, term, user, policy=None):
     card.attendance_present = attendance_map.get("present", 0)
     card.attendance_absent = attendance_map.get("absent", 0) + attendance_map.get("sick", 0) + attendance_map.get("excused", 0)
     card.attendance_late = attendance_map.get("late", 0)
-    card.class_size = Student.objects.filter(stream=student.stream, is_deleted=False, is_active=True).count() if student.stream else 0
+    enrolled_class_size = Enrollment.objects.filter(
+        academic_year=term.academic_year,
+        stream=report_stream,
+        is_deleted=False,
+    ).exclude(status="withdrawn").count()
+    card.class_size = enrolled_class_size or Student.objects.filter(
+        stream=report_stream,
+        is_deleted=False,
+        is_active=True,
+    ).count()
     if not policy.show_class_position:
         card.class_position = None
     card.save()
@@ -166,7 +194,15 @@ def generate_stream_reports(stream, term, user, policy=None):
     policy = policy or AssessmentPolicy.objects.filter(academic_year=term.academic_year, class_level=stream.class_level, purpose="internal", is_active=True, is_deleted=False).first()
     if not policy:
         raise ValidationError(f"Configure an internal assessment policy for {stream.class_level} first.")
-    cards = [generate_report_card(student, term, user, policy) for student in Student.objects.filter(stream=stream, is_deleted=False, is_active=True)]
+    enrolled_ids = Enrollment.objects.filter(
+        academic_year=term.academic_year,
+        stream=stream,
+        is_deleted=False,
+    ).exclude(status="withdrawn").values_list("student_id", flat=True)
+    students = Student.objects.filter(pk__in=enrolled_ids, is_deleted=False)
+    if not students.exists():
+        students = Student.objects.filter(stream=stream, is_deleted=False, is_active=True)
+    cards = [generate_report_card(student, term, user, policy) for student in students]
     if policy.show_class_position:
         rankable = sorted([card for card in cards if not card.has_missing_marks], key=lambda card: card.average_score, reverse=True)
         for position, card in enumerate(rankable, 1):

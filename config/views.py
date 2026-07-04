@@ -1,5 +1,6 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.cache import cache
+from django.db import connection
 from django.db.models import Avg, Count, Q
 from django.http import JsonResponse
 from django.utils import timezone
@@ -428,4 +429,10 @@ class DashboardView(LoginRequiredMixin, TemplateView):
 
 
 def health(request):
-    return JsonResponse({"status": "ok", "service": "Ugandan Secondary School Academic Management System", "time": timezone.now().isoformat()})
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+            cursor.fetchone()
+    except Exception:
+        return JsonResponse({"status": "unavailable"}, status=503)
+    return JsonResponse({"status": "ok", "time": timezone.now().isoformat()})

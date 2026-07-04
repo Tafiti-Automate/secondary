@@ -3,8 +3,8 @@ from rest_framework import viewsets
 from django.db.models import Q
 
 from config.permissions import IsReadOnlyOrAcademicManager
-from .models import Room, TimeSlot, TimetableEntry
-from .serializers import RoomSerializer, TimeSlotSerializer, TimetableEntrySerializer
+from .models import Room, SchedulingRequirement, TimeSlot, TimetableEntry, TimetableGenerationRun
+from .serializers import RoomSerializer, SchedulingRequirementSerializer, TimeSlotSerializer, TimetableEntrySerializer, TimetableGenerationRunSerializer
 
 
 class BaseViewSet(viewsets.ModelViewSet):
@@ -20,6 +20,8 @@ class BaseViewSet(viewsets.ModelViewSet):
 router = DefaultRouter()
 router.register("rooms", type("RoomViewSet", (BaseViewSet,), {"queryset": Room.objects.all(), "serializer_class": RoomSerializer}), basename="room")
 router.register("time-slots", type("TimeSlotViewSet", (BaseViewSet,), {"queryset": TimeSlot.objects.all(), "serializer_class": TimeSlotSerializer}), basename="time-slot")
+router.register("requirements", type("SchedulingRequirementViewSet", (BaseViewSet,), {"queryset": SchedulingRequirement.objects.all(), "serializer_class": SchedulingRequirementSerializer}), basename="scheduling-requirement")
+router.register("generation-runs", type("TimetableGenerationRunViewSet", (BaseViewSet,), {"queryset": TimetableGenerationRun.objects.all(), "serializer_class": TimetableGenerationRunSerializer, "http_method_names": ["get", "head", "options"]}), basename="generation-run")
 class TimetableEntryViewSet(BaseViewSet):
     queryset = TimetableEntry.objects.all()
     serializer_class = TimetableEntrySerializer

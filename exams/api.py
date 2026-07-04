@@ -1,21 +1,21 @@
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.db.models import Exists, OuterRef
+from django.db.models import Exists, OuterRef, Q
 
 from config.mixins import ACADEMIC_MANAGERS
 from config.permissions import IsAcademicManager, IsAcademicStaff, IsReadOnlyOrAcademicManager, IsReadOnlyOrAcademicStaff
 from academics.models import Stream, SubjectAllocation, Term
 from .models import (
     ExamSession, Examination, ExaminationResult, GradeBoundary, GradeScale, UNEBCandidate,
-    UNEBCandidateSubject, UNEBContinuousAssessment, UNEBExportBatch, UpperAssessmentComponent,
-    UpperAssessmentPlan, UpperSubjectResult,
+    UNEBCandidateSubject, UNEBContinuousAssessment, UNEBExportBatch, UNEBIntegrationAdapter,
+    UpperAssessmentComponent, UpperAssessmentPlan, UpperSubjectResult,
 )
 from .serializers import (
     ExamSessionSerializer, ExaminationResultSerializer, ExaminationSerializer,
     GradeBoundarySerializer, GradeScaleSerializer, UNEBCandidateSerializer,
     UNEBCandidateSubjectSerializer, UNEBContinuousAssessmentSerializer,
-    UNEBExportBatchSerializer, UpperAssessmentComponentSerializer,
+    UNEBExportBatchSerializer, UNEBIntegrationAdapterSerializer, UpperAssessmentComponentSerializer,
     UpperAssessmentPlanSerializer, UpperSubjectResultSerializer,
 )
 from .services import process_upper_subject_results
@@ -37,6 +37,20 @@ ExamSessionViewSet = type("ExamSessionViewSet", (BaseViewSet,), {"queryset": Exa
 UNEBCandidateViewSet = type("UNEBCandidateViewSet", (BaseViewSet,), {"queryset": UNEBCandidate.objects.all(), "serializer_class": UNEBCandidateSerializer, "permission_classes": [IsAcademicManager]})
 UNEBCandidateSubjectViewSet = type("UNEBCandidateSubjectViewSet", (BaseViewSet,), {"queryset": UNEBCandidateSubject.objects.all(), "serializer_class": UNEBCandidateSubjectSerializer, "permission_classes": [IsAcademicManager]})
 UNEBExportBatchViewSet = type("UNEBExportBatchViewSet", (BaseViewSet,), {"queryset": UNEBExportBatch.objects.all(), "serializer_class": UNEBExportBatchSerializer, "permission_classes": [IsAcademicManager]})
+
+
+class UNEBIntegrationAdapterViewSet(BaseViewSet):
+    queryset = UNEBIntegrationAdapter.objects.all()
+    serializer_class = UNEBIntegrationAdapterSerializer
+    permission_classes = [IsReadOnlyOrAcademicManager]
+
+    def perform_create(self, serializer):
+        status_value = serializer.validated_data.get("status", "draft")
+        serializer.save(approved_by=self.request.user if status_value == "active" else None)
+
+    def perform_update(self, serializer):
+        status_value = serializer.validated_data.get("status", serializer.instance.status)
+        serializer.save(approved_by=self.request.user if status_value == "active" else serializer.instance.approved_by)
 
 
 class UpperAssessmentPlanViewSet(BaseViewSet):

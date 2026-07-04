@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import BulkPromotionView, EnrollmentCreateView, GuardianCreateView, GuardianListView, GuardianUpdateView, PromotionCreateView, PromotionListView, StudentAcademicHistoryView, StudentCreateView, StudentDeleteView, StudentDetailView, StudentGuardianCreateView, StudentImportTemplateView, StudentImportView, StudentListView, StudentMovementCreateView, StudentMovementListView, StudentUpdateView, SubjectRegistrationCreateView
+from .views import BulkPromotionView, EnrollmentCreateView, GuardianCreateView, GuardianListView, GuardianUpdateView, PromotionCreateView, PromotionListView, StudentAccommodationCreateView, StudentAchievementCreateView, StudentAcademicHistoryView, StudentCreateView, StudentDeleteView, StudentDetailView, StudentGuardianCreateView, StudentImportTemplateView, StudentImportView, StudentInterestCreateView, StudentListView, StudentMovementCreateView, StudentMovementListView, StudentTimelineView, StudentUpdateView, SubjectRegistrationCreateView
 
 app_name = "students"
 
@@ -11,6 +11,10 @@ urlpatterns = [
     path("import/template.csv", StudentImportTemplateView.as_view(), name="import-template"),
     path("<int:pk>/", StudentDetailView.as_view(), name="detail"),
     path("<int:pk>/academic-history/", StudentAcademicHistoryView.as_view(), name="academic-history"),
+    path("<int:pk>/timeline/", StudentTimelineView.as_view(), name="timeline"),
+    path("<int:pk>/accommodations/add/", StudentAccommodationCreateView.as_view(), name="accommodation-add"),
+    path("<int:pk>/interests/add/", StudentInterestCreateView.as_view(), name="interest-add"),
+    path("<int:pk>/achievements/add/", StudentAchievementCreateView.as_view(), name="achievement-add"),
     path("<int:pk>/edit/", StudentUpdateView.as_view(), name="edit"),
     path("<int:pk>/delete/", StudentDeleteView.as_view(), name="delete"),
     path("guardians/", GuardianListView.as_view(), name="guardians"),

@@ -21,8 +21,8 @@ from config.tables import ModelTableView
 from students.models import Student
 from academics.models import ClassLevel, Subject, SubjectAllocation, Term
 from communications.services import queue_notification
-from .forms import ActivityOfIntegrationForm, AssessmentEvidenceForm, AssessmentForm, AssessmentPolicyForm, AssessmentScaleForm, AssessmentTypeForm, CompetencyForm, CompetencyIndicatorForm, CompetencyLevelForm, CurriculumFrameworkForm, CurriculumImportForm, CurriculumTopicForm, CurriculumValueForm, LearningOutcomeForm, LessonPlanForm, PortfolioItemForm, ProjectMilestoneForm, RubricCriterionForm, RubricForm, RubricLevelForm, SchemeOfWorkForm, SchemeWeekForm, SubmissionForm, TeacherObservationForm
-from .models import ActivityOfIntegration, Assessment, AssessmentEvidence, AssessmentPolicy, AssessmentResult, AssessmentScale, AssessmentSubmission, AssessmentType, Competency, CompetencyAssessment, CompetencyIndicator, CompetencyLevel, CurriculumFramework, CurriculumLearningArea, CurriculumTopic, CurriculumValue, LearnerSkillRating, LearnerValueRating, LearningOutcome, LearningOutcomeAssessment, LessonPlan, PortfolioItem, ProjectMilestone, Rubric, RubricCriterion, RubricLevel, RubricRating, SchemeOfWork, SchemeWeek, Skill, TeacherObservation
+from .forms import ActivityOfIntegrationForm, AssessmentEvidenceForm, AssessmentForm, AssessmentPolicyForm, AssessmentScaleForm, AssessmentTypeForm, CompetencyForm, CompetencyIndicatorForm, CompetencyLevelForm, CurriculumFrameworkForm, CurriculumImportForm, CurriculumTopicForm, CurriculumValueForm, EvidenceAssetForm, LearningOutcomeForm, LessonPlanForm, PortfolioItemForm, ProjectMilestoneForm, ProjectTeamForm, ProjectTeamMemberForm, RubricCriterionForm, RubricForm, RubricLevelForm, SchemeOfWorkForm, SchemeWeekForm, SubmissionForm, TeacherObservationForm
+from .models import ActivityOfIntegration, Assessment, AssessmentEvidence, AssessmentPolicy, AssessmentResult, AssessmentScale, AssessmentSubmission, AssessmentType, Competency, CompetencyAssessment, CompetencyIndicator, CompetencyLevel, CurriculumFramework, CurriculumLearningArea, CurriculumTopic, CurriculumValue, EvidenceAsset, LearnerSkillRating, LearnerValueRating, LearningOutcome, LearningOutcomeAssessment, LessonPlan, PortfolioItem, ProjectMilestone, ProjectTeam, ProjectTeamMember, Rubric, RubricCriterion, RubricLevel, RubricRating, SchemeOfWork, SchemeWeek, Skill, TeacherObservation
 
 
 def teacher_assessments(user):
@@ -231,7 +231,7 @@ class AssessmentDetailView(AcademicStaffRequiredMixin, DetailView):
     context_object_name = "assessment"
 
     def get_queryset(self):
-        return teacher_assessments(self.request.user).prefetch_related("results__student", "submissions__student", "learning_outcomes", "evidence_records__student", "reviews__reviewer")
+        return teacher_assessments(self.request.user).prefetch_related("results__student", "submissions__student", "learning_outcomes", "evidence_records__student", "evidence_records__assets", "reviews__reviewer", "project_teams__members__student")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -242,6 +242,7 @@ class AssessmentDetailView(AcademicStaffRequiredMixin, DetailView):
             or (department and department.head_id == self.request.user.pk)
         )
         context["project_milestones"] = self.object.project_milestones.filter(is_deleted=False).prefetch_related("portfolio_items")
+        context["project_teams"] = self.object.project_teams.filter(is_deleted=False).prefetch_related("members__student")
         return context
 
 
@@ -749,6 +750,19 @@ class CurriculumOverviewView(AcademicStaffRequiredMixin, TemplateView):
         return context
 
 
+class CurriculumFrameworkWorkflowView(AcademicManagerRequiredMixin, View):
+    def post(self, request, pk, operation):
+        framework = get_object_or_404(CurriculumFramework, pk=pk, is_deleted=False)
+        try:
+            framework.transition(operation, request.user)
+        except ValidationError as exc:
+            messages.error(request, "; ".join(exc.messages))
+        else:
+            record_audit(request, f"curriculum_{operation}", framework, f"Curriculum version {operation}")
+            messages.success(request, f"Curriculum version {operation} completed.")
+        return redirect("assessments:curriculum")
+
+
 class ActivityDetailView(AcademicStaffRequiredMixin, DetailView):
     model = ActivityOfIntegration
     template_name = "assessments/activity_detail.html"
@@ -832,10 +846,85 @@ class EvidenceCreateView(AcademicStaffRequiredMixin, AuditedFormMixin, CreateVie
         allowed = teacher_assessments(self.request.user)
         form.fields["assessment"].queryset = allowed
         form.fields["student"].queryset = Student.objects.filter(stream_id__in=allowed.values_list("stream_id", flat=True), is_deleted=False, is_active=True).distinct()
+        form.fields["learning_outcomes"].queryset = LearningOutcome.objects.filter(assessments__in=allowed, is_deleted=False).distinct()
+        form.fields["competencies"].queryset = Competency.objects.filter(is_active=True, is_deleted=False)
         return form
 
     def get_success_url(self):
         return reverse("assessments:detail", args=[self.object.assessment_id])
+
+
+class EvidenceAssetCreateView(AcademicStaffRequiredMixin, AuditedFormMixin, CreateView):
+    model = EvidenceAsset
+    form_class = EvidenceAssetForm
+    template_name = "shared/form.html"
+    audit_action = "create"
+    extra_context = {"page_title": "Add multimedia evidence", "eyebrow": "Image · audio · video · document", "submit_label": "Save evidence asset"}
+
+    def dispatch(self, request, *args, **kwargs):
+        self.evidence = get_object_or_404(
+            AssessmentEvidence.objects.filter(assessment__in=teacher_assessments(request.user), is_deleted=False),
+            pk=kwargs["pk"],
+        )
+        return super().dispatch(request, *args, **kwargs)
+
+    def form_valid(self, form):
+        form.instance.evidence = self.evidence
+        form.instance.captured_by = self.request.user
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse("assessments:detail", args=[self.evidence.assessment_id])
+
+
+class ProjectTeamCreateView(AcademicStaffRequiredMixin, AuditedFormMixin, CreateView):
+    model = ProjectTeam
+    form_class = ProjectTeamForm
+    template_name = "shared/form.html"
+    audit_action = "create"
+    extra_context = {"page_title": "Create project team", "eyebrow": "Collaborative project", "submit_label": "Create team"}
+
+    def dispatch(self, request, *args, **kwargs):
+        self.assessment = get_object_or_404(teacher_assessments(request.user), pk=kwargs["pk"])
+        if not self.assessment.project_enabled:
+            raise Http404
+        return super().dispatch(request, *args, **kwargs)
+
+    def form_valid(self, form):
+        form.instance.assessment = self.assessment
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse("assessments:detail", args=[self.assessment.pk])
+
+
+class ProjectTeamMemberCreateView(AcademicStaffRequiredMixin, AuditedFormMixin, CreateView):
+    model = ProjectTeamMember
+    form_class = ProjectTeamMemberForm
+    template_name = "shared/form.html"
+    audit_action = "create"
+    extra_context = {"page_title": "Add project team member", "eyebrow": "Collaborative project", "submit_label": "Add learner"}
+
+    def dispatch(self, request, *args, **kwargs):
+        self.team = get_object_or_404(
+            ProjectTeam.objects.filter(assessment__in=teacher_assessments(request.user), is_deleted=False),
+            pk=kwargs["pk"],
+        )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        form.fields["student"].queryset = Student.objects.filter(
+            stream=self.team.assessment.stream, is_active=True, is_deleted=False,
+        ).exclude(project_memberships__team=self.team, project_memberships__is_deleted=False)
+        return form
+
+    def form_valid(self, form):
+        form.instance.team = self.team
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse("assessments:detail", args=[self.team.assessment_id])
 
 
 class CurriculumImportView(AcademicManagerRequiredMixin, View):
@@ -853,7 +942,8 @@ class CurriculumImportView(AcademicManagerRequiredMixin, View):
             reader = csv.DictReader(StringIO(form.cleaned_data["csv_file"].read().decode("utf-8-sig")))
             if not reader.fieldnames or not self.required.issubset(reader.fieldnames):
                 raise ValueError("Template columns are missing. Download and use the current curriculum template.")
-            topic_count, outcome_count = 0, 0
+            topic_count = topic_update_count = outcome_count = outcome_update_count = 0
+            framework = form.cleaned_data["framework"]
             with transaction.atomic():
                 for row_number, row in enumerate(reader, 2):
                     subject = Subject.objects.filter(code__iexact=row["subject_code"].strip(), is_deleted=False).first()
@@ -864,28 +954,82 @@ class CurriculumImportView(AcademicManagerRequiredMixin, View):
                         term_number, sequence = int(row["term_number"]), int(row["sequence"])
                     except ValueError:
                         raise ValueError(f"Row {row_number}: term_number and sequence must be numbers.")
+                    if term_number not in {1, 2, 3} or sequence < 1:
+                        raise ValueError(f"Row {row_number}: term_number must be 1–3 and sequence must be positive.")
+                    expected_stage = "lower" if class_level.curriculum == "lower" else "advanced"
+                    if framework.stage != expected_stage:
+                        raise ValueError(f"Row {row_number}: {class_level} does not belong to the selected {framework.get_stage_display()} framework.")
+                    expected_subject_level = "lower" if class_level.curriculum == "lower" else "upper"
+                    if subject.curriculum_level not in {expected_subject_level, "both"}:
+                        raise ValueError(f"Row {row_number}: {subject} is not configured for {class_level}.")
                     learning_area = None
                     if row.get("learning_area", "").strip():
-                        learning_area, _ = CurriculumLearningArea.objects.get_or_create(
-                            framework=form.cleaned_data["framework"],
+                        learning_area, _ = CurriculumLearningArea.objects.update_or_create(
+                            framework=framework,
                             subject=subject,
                             name=row["learning_area"].strip(),
                             defaults={
                                 "code": row.get("learning_area_code", "").strip(),
                                 "sequence": int(row.get("learning_area_order", "1") or 1),
+                                "is_deleted": False,
                             },
                         )
-                    topic, created = CurriculumTopic.objects.get_or_create(framework=form.cleaned_data["framework"], subject=subject, class_level=class_level, term_number=term_number, sequence=sequence, defaults={"learning_area": learning_area, "code": row.get("topic_code", "").strip(), "title": row["topic_title"].strip(), "description": row.get("topic_description", "").strip(), "suggested_periods": int(row.get("suggested_periods", "1") or 1)})
+                    topic_code = row.get("topic_code", "").strip()
+                    topic_lookup = {
+                        "framework": framework,
+                        "subject": subject,
+                        "class_level": class_level,
+                        "term_number": term_number,
+                    }
+                    topic_lookup["code" if topic_code else "sequence"] = topic_code or sequence
+                    topic, created = CurriculumTopic.objects.update_or_create(
+                        **topic_lookup,
+                        defaults={
+                            "learning_area": learning_area,
+                            "code": topic_code,
+                            "title": row["topic_title"].strip(),
+                            "description": row.get("topic_description", "").strip(),
+                            "suggested_periods": int(row.get("suggested_periods", "1") or 1),
+                            "sequence": sequence,
+                            "is_deleted": False,
+                        },
+                    )
                     topic_count += int(created)
-                    outcome, created = LearningOutcome.objects.get_or_create(topic=topic, code=row.get("learning_outcome_code", "").strip(), statement=row["learning_outcome"].strip(), defaults={"assessment_criteria": row.get("assessment_criteria", "").strip(), "suggested_activities": row.get("suggested_activities", "").strip(), "required_evidence": row.get("required_evidence", "").strip(), "display_order": int(row.get("outcome_order", "1") or 1)})
+                    topic_update_count += int(not created)
+                    outcome_code = row.get("learning_outcome_code", "").strip()
+                    outcome_statement = row["learning_outcome"].strip()
+                    outcome_lookup = {"topic": topic}
+                    outcome_lookup["code" if outcome_code else "statement"] = outcome_code or outcome_statement
+                    outcome, created = LearningOutcome.objects.update_or_create(
+                        **outcome_lookup,
+                        defaults={
+                            "code": outcome_code,
+                            "statement": outcome_statement,
+                            "assessment_criteria": row.get("assessment_criteria", "").strip(),
+                            "suggested_activities": row.get("suggested_activities", "").strip(),
+                            "required_evidence": row.get("required_evidence", "").strip(),
+                            "display_order": int(row.get("outcome_order", "1") or 1),
+                            "is_deleted": False,
+                        },
+                    )
                     outcome_count += int(created)
+                    outcome_update_count += int(not created)
                     skill_names = [name.strip() for name in row.get("generic_skills", "").split("|") if name.strip()]
                     value_names = [name.strip() for name in row.get("values", "").split("|") if name.strip()]
-                    if skill_names:
-                        outcome.generic_skills.set(Competency.objects.filter(name__in=skill_names, is_active=True, is_deleted=False))
-                    if value_names:
-                        outcome.values.set(CurriculumValue.objects.filter(name__in=value_names, is_deleted=False))
-            messages.success(request, f"Curriculum import complete: {topic_count} new topic(s), {outcome_count} new learning outcome(s).")
+                    skills = list(Competency.objects.filter(name__in=skill_names, is_active=True, is_deleted=False))
+                    values = list(CurriculumValue.objects.filter(name__in=value_names, is_deleted=False))
+                    missing_skills = sorted(set(skill_names) - {item.name for item in skills})
+                    missing_values = sorted(set(value_names) - {item.name for item in values})
+                    if missing_skills or missing_values:
+                        missing = ", ".join(missing_skills + missing_values)
+                        raise ValueError(f"Row {row_number}: unknown generic skill/value: {missing}.")
+                    outcome.generic_skills.set(skills)
+                    outcome.values.set(values)
+            messages.success(
+                request,
+                f"Curriculum import complete: {topic_count} topic(s) created, {topic_update_count} updated; "
+                f"{outcome_count} outcome(s) created, {outcome_update_count} updated.",
+            )
             return redirect("assessments:curriculum")
         except Exception as exc:
             form.add_error("csv_file", str(exc))

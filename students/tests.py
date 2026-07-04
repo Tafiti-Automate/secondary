@@ -4,8 +4,9 @@ from django.test import TestCase
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 
-from academics.models import AcademicYear, ClassLevel, Stream, Term
+from academics.models import AcademicYear, ClassLevel, Stream, Subject, SubjectAllocation, Term
 from accounts.models import User
+from rest_framework.test import APIClient
 from .models import Enrollment, Guardian, Student, StudentGuardian, StudentMovement
 
 
@@ -60,3 +61,25 @@ class StudentAdmissionTests(TestCase):
         self.assertFalse(student.is_active)
         self.assertTrue(StudentMovement.objects.filter(student=student, movement_type="graduation", is_deleted=False).exists())
         self.assertEqual(Enrollment.objects.get(student=student, academic_year=self.year).status, "completed")
+
+    def test_teacher_api_does_not_expose_private_identity_or_medical_fields(self):
+        teacher = User.objects.create_user("privacy-teacher", role="teacher")
+        subject = Subject.objects.create(name="Privacy English", code="PENG", curriculum_level="lower")
+        SubjectAllocation.objects.create(teacher=teacher, subject=subject, stream=self.stream, term=self.term)
+        Student.objects.create(
+            first_name="Private", last_name="Learner", gender="female",
+            date_of_birth=date(2012, 1, 1), stream=self.stream,
+            national_id="SECRET-NIN", medical_information="Sensitive medical note",
+            allergies="Sensitive allergy", special_needs="Learning accommodation",
+        )
+        client = APIClient()
+        client.force_authenticate(teacher)
+
+        response = client.get("/api/students/students/")
+
+        self.assertEqual(response.status_code, 200)
+        record = response.data["results"][0]
+        self.assertNotIn("national_id", record)
+        self.assertNotIn("medical_information", record)
+        self.assertNotIn("allergies", record)
+        self.assertEqual(record["special_needs"], "Learning accommodation")

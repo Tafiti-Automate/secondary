@@ -1,8 +1,8 @@
 from django.urls import path, reverse_lazy
 
-from .forms import ExamSessionForm, GradeBoundaryForm, GradeScaleForm
-from .models import ExamSession, GradeBoundary, GradeScale
-from .views import ExamMarkEntryView, ExamModerationView, ExaminationCreateView, ExaminationDeleteView, ExaminationDetailView, ExaminationListView, ExaminationTransitionView, ExaminationUpdateView, SetupCreateView, SetupTableView, SetupUpdateView, UNEBCACreateView, UNEBCAImportTemplateView, UNEBCAImportView, UNEBCAListView, UNEBCAWorkflowView, UNEBCandidateCreateView, UNEBCandidateDetailView, UNEBCandidateListView, UNEBCandidateSubjectCreateView, UNEBExportView, UNEBHubView
+from .forms import ExamSessionForm, GradeBoundaryForm, GradeScaleForm, UNEBIntegrationAdapterForm
+from .models import ExamSession, GradeBoundary, GradeScale, UNEBIntegrationAdapter
+from .views import ExamMarkEntryView, ExamModerationView, ExaminationCreateView, ExaminationDeleteView, ExaminationDetailView, ExaminationListView, ExaminationTransitionView, ExaminationUpdateView, SetupCreateView, SetupTableView, SetupUpdateView, UNEBCACreateView, UNEBCAImportTemplateView, UNEBCAImportView, UNEBCAListView, UNEBCAWorkflowView, UNEBCandidateCreateView, UNEBCandidateDetailView, UNEBCandidateListView, UNEBCandidateSubjectCreateView, UNEBExportView, UNEBHubView, UpperAssessmentComponentCreateView, UpperAssessmentComponentUpdateView, UpperAssessmentPlanCreateView, UpperAssessmentPlanDetailView, UpperAssessmentPlanListView, UpperAssessmentPlanProcessView, UpperAssessmentPlanWorkflowView
 
 app_name = "exams"
 
@@ -15,6 +15,13 @@ urlpatterns = [
     path("<int:pk>/marks/", ExamMarkEntryView.as_view(), name="marks"),
     path("<int:pk>/moderate/", ExamModerationView.as_view(), name="moderate"),
     path("<int:pk>/transition/<str:operation>/", ExaminationTransitionView.as_view(), name="transition"),
+    path("upper-plans/", UpperAssessmentPlanListView.as_view(), name="upper-plans"),
+    path("upper-plans/add/", UpperAssessmentPlanCreateView.as_view(), name="upper-plan-add"),
+    path("upper-plans/<int:pk>/", UpperAssessmentPlanDetailView.as_view(), name="upper-plan-detail"),
+    path("upper-plans/<int:pk>/components/add/", UpperAssessmentComponentCreateView.as_view(), name="upper-component-add"),
+    path("upper-components/<int:pk>/edit/", UpperAssessmentComponentUpdateView.as_view(), name="upper-component-edit"),
+    path("upper-plans/<int:pk>/workflow/<str:operation>/", UpperAssessmentPlanWorkflowView.as_view(), name="upper-plan-workflow"),
+    path("upper-plans/<int:pk>/process/", UpperAssessmentPlanProcessView.as_view(), name="upper-plan-process"),
     path("uneb/", UNEBHubView.as_view(), name="uneb-hub"),
     path("uneb/candidates/", UNEBCandidateListView.as_view(), name="uneb-candidates"),
     path("uneb/candidates/add/", UNEBCandidateCreateView.as_view(), name="uneb-candidate-add"),
@@ -32,6 +39,7 @@ SETUP = {
     "sessions": (ExamSession, ExamSessionForm, ("Session", "Term", "Type", "Dates", "Status"), ("name", "term", "get_exam_type_display", "start_date", "get_status_display"), "Examination sessions"),
     "grade-scales": (GradeScale, GradeScaleForm, ("Scale", "Curriculum", "Default"), ("name", "get_curriculum_level_display", "is_default"), "Grading scales"),
     "grade-boundaries": (GradeBoundary, GradeBoundaryForm, ("Grade", "Minimum", "Maximum", "Points", "Descriptor"), ("grade", "minimum_score", "maximum_score", "points", "descriptor"), "Grade boundaries"),
+    "uneb-adapters": (UNEBIntegrationAdapter, UNEBIntegrationAdapterForm, ("Adapter", "Level", "Version", "Effective", "Status"), ("name", "get_examination_level_display", "version", "effective_from", "get_status_display"), "UNEB integration adapters"),
 }
 for slug, (model, form, columns, fields, title) in SETUP.items():
     list_name, add_name, edit_name = f"{slug}-list", f"{slug}-add", f"{slug}-edit"

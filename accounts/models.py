@@ -17,6 +17,7 @@ class User(AbstractUser, BaseModel):
     ]
     role = models.CharField(max_length=32, choices=ROLE_CHOICES, default="teacher")
     phone = models.CharField(max_length=20, blank=True)
+    preferred_language = models.CharField(max_length=12, choices=[("en", "English"), ("lg", "Luganda"), ("sw", "Kiswahili"), ("fr", "French"), ("other", "Other")], default="en")
     profile_picture = models.ImageField(upload_to="profiles/", blank=True, null=True)
     must_change_password = models.BooleanField(default=False)
     last_activity = models.DateTimeField(null=True, blank=True)

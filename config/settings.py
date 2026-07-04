@@ -35,6 +35,7 @@ if not SECRET_KEY:
         raise ImproperlyConfigured("SECRET_KEY must be set when DEBUG is False.")
     SECRET_KEY = "local-development-academic-platform-key-change-before-deployment-2026"
 ALLOWED_HOSTS = [host.strip() for host in os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1,testserver").split(",") if host.strip()]
+CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",") if origin.strip()]
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -48,6 +49,7 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt.token_blacklist",
     "drf_spectacular",
     "whitenoise.runserver_nostatic",
+    "config",
     "accounts",
     "academics",
     "students",
@@ -99,6 +101,9 @@ if os.getenv("DB_ENGINE", "sqlite").lower() in {"postgres", "postgresql"}:
             "HOST": os.getenv("DB_HOST", "localhost"),
             "PORT": os.getenv("DB_PORT", "5432"),
             "CONN_MAX_AGE": int(os.getenv("DB_CONN_MAX_AGE", "60")),
+            "OPTIONS": {
+                "sslmode": os.getenv("DB_SSLMODE", "prefer" if DEBUG else "require"),
+            },
         }
     }
 else:
@@ -174,6 +179,7 @@ CACHES = {
 
 EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "Academics Office <noreply@school.local>")
+EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "10"))
 SMS_WEBHOOK_URL = os.getenv("SMS_WEBHOOK_URL", "")
 WHATSAPP_WEBHOOK_URL = os.getenv("WHATSAPP_WEBHOOK_URL", "")
 NOTIFICATION_WEBHOOK_TOKEN = os.getenv("NOTIFICATION_WEBHOOK_TOKEN", "")
@@ -184,11 +190,20 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", not DEBUG)
 SESSION_COOKIE_SECURE = env_bool("SESSION_COOKIE_SECURE", not DEBUG)
 CSRF_COOKIE_SECURE = env_bool("CSRF_COOKIE_SECURE", not DEBUG)
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_AGE = int(os.getenv("SESSION_COOKIE_AGE", "28800"))
+SESSION_EXPIRE_AT_BROWSER_CLOSE = env_bool("SESSION_EXPIRE_AT_BROWSER_CLOSE", True)
 SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "0" if DEBUG else "31536000"))
 SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
 SECURE_HSTS_PRELOAD = not DEBUG
+SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
+SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
 X_FRAME_OPTIONS = "DENY"
 SECURE_CONTENT_TYPE_NOSNIFF = True
+FILE_UPLOAD_PERMISSIONS = 0o640
+FILE_UPLOAD_DIRECTORY_PERMISSIONS = 0o750
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

@@ -1,7 +1,11 @@
 from django import forms
 
 from config.forms import DateRangeValidationMixin, StyledModelForm
-from .models import ExamSession, Examination, GradeBoundary, GradeScale, UNEBCandidate, UNEBCandidateSubject, UNEBContinuousAssessment
+from .models import (
+    ExamSession, Examination, GradeBoundary, GradeScale, UNEBCandidate,
+    UNEBCandidateSubject, UNEBContinuousAssessment, UNEBIntegrationAdapter, UpperAssessmentComponent,
+    UpperAssessmentPlan,
+)
 
 
 class GradeScaleForm(StyledModelForm):
@@ -25,7 +29,19 @@ class ExamSessionForm(DateRangeValidationMixin, StyledModelForm):
 class ExaminationForm(StyledModelForm):
     class Meta:
         model = Examination
-        fields = ("title", "session", "term", "subject", "stream", "is_school_summative", "exam_date", "start_time", "duration_minutes", "max_score", "status")
+        fields = ("title", "session", "term", "subject", "stream", "component", "is_school_summative", "exam_date", "start_time", "duration_minutes", "max_score", "status")
+
+
+class UpperAssessmentPlanForm(StyledModelForm):
+    class Meta:
+        model = UpperAssessmentPlan
+        fields = ("academic_year", "class_level", "subject", "name", "pass_mark", "grade_scale", "notes")
+
+
+class UpperAssessmentComponentForm(StyledModelForm):
+    class Meta:
+        model = UpperAssessmentComponent
+        fields = ("name", "component_type", "weight", "maximum_score", "sequence", "is_required", "is_active")
 
 
 class UNEBCandidateForm(StyledModelForm):
@@ -44,6 +60,17 @@ class UNEBContinuousAssessmentForm(StyledModelForm):
     class Meta:
         model = UNEBContinuousAssessment
         fields = ("candidate_subject", "class_level", "term", "component", "raw_score", "maximum_score", "evidence_reference", "status", "notes")
+
+
+class UNEBIntegrationAdapterForm(StyledModelForm):
+    class Meta:
+        model = UNEBIntegrationAdapter
+        fields = ("name", "examination_level", "version", "effective_from", "effective_to", "status", "columns", "requirements", "notes")
+        widgets = {
+            "columns": forms.Textarea(attrs={"rows": 8}),
+            "requirements": forms.Textarea(attrs={"rows": 5}),
+            "notes": forms.Textarea(attrs={"rows": 3}),
+        }
 
 
 class UNEBCAImportForm(forms.Form):

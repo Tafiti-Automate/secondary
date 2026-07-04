@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}S5/S6 assessment plans{% endblock %}
+{% block header_title %}S5/S6 assessment plans{% endblock %}
+{% block content %}
+<div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+  <div><p class="eyebrow">Aligned Advanced Secondary</p><h1 class="page-title mt-2">Annual subject assessment plans</h1><p class="mt-2 text-sm text-slate-500">Ongoing evidence plus exactly one Term III school summative component.</p></div>
+  <a class="btn-primary" href="{% url 'exams:upper-plan-add' %}">＋ Create draft plan</a>
+</div>
+<div class="table-wrap"><table class="data-table"><thead><tr><th>Plan</th><th>Year / class</th><th>Configured weight</th><th>Components</th><th>Status</th><th></th></tr></thead><tbody>
+{% for plan in plans %}<tr><td><p class="font-semibold">{{ plan.subject.name }}</p><p class="text-xs text-slate-500">{{ plan.name }}</p></td><td>{{ plan.academic_year }} · {{ plan.class_level }}</td><td>{{ plan.configured_weight }}%</td><td>{{ plan.components.all|length }}</td><td><span class="{% if plan.status == 'locked' or plan.status == 'approved' %}badge-green{% else %}badge-amber{% endif %}">{{ plan.get_status_display }}</span></td><td><a class="text-sm font-semibold text-brand-600" href="{% url 'exams:upper-plan-detail' plan.pk %}">Open →</a></td></tr>
+{% empty %}<tr><td colspan="6" class="py-12 text-center text-slate-500">No S5/S6 assessment plans configured.</td></tr>{% endfor %}
+</tbody></table></div>
+{% include "shared/pagination.html" %}
+{% endblock %}

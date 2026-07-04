@@ -3,13 +3,13 @@ services:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: school_academics
-      POSTGRES_USER: school_app
-      POSTGRES_PASSWORD: change-this-password
+      POSTGRES_DB: ${DB_NAME:-school_academics}
+      POSTGRES_USER: ${DB_USER:-school_app}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in the deployment environment}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U school_app -d school_academics"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-school_app} -d ${DB_NAME:-school_academics}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -18,15 +18,19 @@ services:
     restart: unless-stopped
     command: sh -c "python manage.py migrate && python manage.py collectstatic --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120"
     environment:
-      SECRET_KEY: replace-with-a-long-random-secret
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in the deployment environment}
       DEBUG: "False"
-      ALLOWED_HOSTS: localhost,127.0.0.1
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:?Set ALLOWED_HOSTS in the deployment environment}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:?Set CSRF_TRUSTED_ORIGINS in the deployment environment}
       DB_ENGINE: postgresql
-      DB_NAME: school_academics
-      DB_USER: school_app
-      DB_PASSWORD: change-this-password
+      DB_NAME: ${DB_NAME:-school_academics}
+      DB_USER: ${DB_USER:-school_app}
+      DB_PASSWORD: ${DB_PASSWORD}
       DB_HOST: db
-      SECURE_SSL_REDIRECT: "False"
+      DB_SSLMODE: ${DB_SSLMODE:-disable}
+      SECURE_SSL_REDIRECT: ${SECURE_SSL_REDIRECT:-True}
+      SESSION_COOKIE_SECURE: "True"
+      CSRF_COOKIE_SECURE: "True"
     ports:
       - "8000:8000"
     volumes:
@@ -34,6 +38,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 volumes:
   postgres_data:
   media_data:
