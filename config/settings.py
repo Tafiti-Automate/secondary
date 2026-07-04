@@ -34,7 +34,7 @@ if not SECRET_KEY:
     if not DEBUG:
         raise ImproperlyConfigured("SECRET_KEY must be set when DEBUG is False.")
     SECRET_KEY = "local-development-academic-platform-key-change-before-deployment-2026"
-ALLOWED_HOSTS = [host.strip() for host in os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1,testserver").split(",") if host.strip()]
+ALLOWED_HOSTS = [host.strip() for host in os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1,testserver","*").split(",") if host.strip()]
 CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",") if origin.strip()]
 
 INSTALLED_APPS = [
