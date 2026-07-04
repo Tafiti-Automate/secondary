@@ -85,6 +85,12 @@ class Student(BaseModel):
     def full_name(self) -> str:
         return " ".join(filter(None, [self.first_name, self.other_names, self.last_name]))
 
+    @property
+    def avatar_atlas_position(self) -> str:
+        """Return a stable tile position in the 6x6 static demo avatar atlas."""
+        index = ((self.pk or 1) - 1) % 36
+        return f"{(index % 6) * 20}% {(index // 6) * 20}%"
+
     def __str__(self):
         return f"{self.admission_number} · {self.full_name}"
 
