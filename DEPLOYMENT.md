@@ -1,5 +1,33 @@
 # Production deployment
 
+## Vercel with Neon PostgreSQL
+
+SQLite cannot be used by this application on Vercel because the deployed
+application filesystem is read-only and ephemeral. Create or select a Neon
+project, open **Connect**, enable **Connection pooling**, and copy the connection
+URL.
+
+Add these variables in **Vercel → Project → Settings → Environment Variables**
+for Production (and Preview if previews should use the database):
+
+```text
+DATABASE_URL=postgresql://...-pooler.../neondb?sslmode=require&channel_binding=require
+SECRET_KEY=<a-long-random-secret>
+DEBUG=False
+```
+
+Use Neon's direct, non-pooler connection URL to apply schema migrations from a
+trusted local or CI environment:
+
+```bash
+export DATABASE_URL='postgresql://.../neondb?sslmode=require&channel_binding=require'
+python manage.py migrate
+python manage.py createsuperuser
+```
+
+Do not commit either Neon connection URL. Redeploy the Vercel project after
+adding or changing its environment variables.
+
 ## PostgreSQL and application settings
 
 Copy `.env.example` to a secrets-managed environment and replace every placeholder. Production startup fails operationally if PostgreSQL or secrets are unavailable; do not use the local SQLite database.
