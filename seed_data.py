@@ -21,11 +21,17 @@ from students.models import Enrollment, Guardian, Student, StudentGuardian, Stud
 from timetables.models import Room, TimeSlot, TimetableEntry
 
 
-def user(username, role, first, last, password):
+DEMO_USER_PASSWORD = os.getenv("DEMO_USER_PASSWORD", "").strip()
+
+
+def user(username, role, first, last):
     account, created = User.objects.get_or_create(username=username, defaults={"role": role, "first_name": first, "last_name": last, "email": f"{username}@school.test"})
     account.role, account.first_name, account.last_name, account.is_active = role, first, last, True
-    if created or not account.has_usable_password():
-        account.set_password(password)
+    if created:
+        if DEMO_USER_PASSWORD:
+            account.set_password(DEMO_USER_PASSWORD)
+        else:
+            account.set_unusable_password()
     account.save()
     return account
 
@@ -49,12 +55,12 @@ def subject_allocation(teacher, subject, stream, term, lessons_per_week):
     return allocation
 
 
-admin = user("admin", "super_admin", "System", "Administrator", "Admin@2026")
-headteacher = user("headteacher", "headteacher", "Grace", "Nabukenya", "School@2026")
-dos = user("dos", "director_of_studies", "David", "Okello", "School@2026")
-teacher = user("teacher", "teacher", "Sarah", "Namusoke", "Teacher@2026")
-parent_user = user("parent", "parent", "Peter", "Kato", "Parent@2026")
-student_user = user("student", "student", "Amina", "Nabirye", "Student@2026")
+admin = user("admin", "super_admin", "System", "Administrator")
+headteacher = user("headteacher", "headteacher", "Grace", "Nabukenya")
+dos = user("dos", "director_of_studies", "David", "Okello")
+teacher = user("teacher", "teacher", "Sarah", "Namusoke")
+parent_user = user("parent", "parent", "Peter", "Kato")
+student_user = user("student", "student", "Amina", "Nabirye")
 
 SchoolProfile.objects.update_or_create(
     pk=SchoolProfile.objects.first().pk if SchoolProfile.objects.exists() else None,
@@ -106,7 +112,8 @@ subject_specs = [
 ]
 subjects = {}
 for name, code, department, subject_type, curriculum in subject_specs:
-    subjects[code], _ = Subject.objects.update_or_create(code=code, defaults={"name": name, "short_name": name, "department": departments[department], "subject_type": subject_type, "curriculum_level": curriculum, "pass_mark": 50})
+    short_name = "History & Political Education" if code == "HPE" else name
+    subjects[code], _ = Subject.objects.update_or_create(code=code, defaults={"name": name, "short_name": short_name, "department": departments[department], "subject_type": subject_type, "curriculum_level": curriculum, "pass_mark": 50})
 
 pcm, _ = SubjectCombination.objects.update_or_create(code="PCM", defaults={"name": "Physics, Chemistry and Mathematics", "curriculum_level": "upper", "description": "Upper-secondary science combination"})
 pcm.subjects.set([subjects["PHY"], subjects["CHE"], subjects["MTC"]])
@@ -237,10 +244,10 @@ stream_b, _ = Stream.objects.update_or_create(
 )
 demo_streams = [streams[1], stream_b]
 
-math_teacher = user("math.teacher", "teacher", "Joseph", "Mugisha", "Teacher@2026")
-science_teacher = user("science.teacher", "teacher", "Rebecca", "Aciro", "Teacher@2026")
-humanities_teacher = user("humanities.teacher", "teacher", "Martin", "Wasswa", "Teacher@2026")
-ict_teacher = user("ict.teacher", "teacher", "Lillian", "Atuhaire", "Teacher@2026")
+math_teacher = user("math.teacher", "teacher", "Joseph", "Mugisha")
+science_teacher = user("science.teacher", "teacher", "Rebecca", "Aciro")
+humanities_teacher = user("humanities.teacher", "teacher", "Martin", "Wasswa")
+ict_teacher = user("ict.teacher", "teacher", "Lillian", "Atuhaire")
 departments["Mathematics"].head = math_teacher
 departments["Mathematics"].save(update_fields=["head", "updated_at"])
 departments["Sciences"].head = science_teacher
@@ -291,6 +298,12 @@ student_specs = [
     ("Denis", "Opio", "male", date(2011, 5, 15), stream_b),
     ("Gloria", "Asiimwe", "female", date(2012, 7, 27), stream_b),
     ("Noah", "Walusimbi", "male", date(2011, 9, 1), stream_b),
+    ("Irene", "Nabirye", "female", date(2012, 3, 7), streams[1]),
+    ("Andrew", "Okot", "male", date(2011, 10, 19), streams[1]),
+    ("Brenda", "Namaganda", "female", date(2012, 6, 2), streams[1]),
+    ("Hassan", "Kiggundu", "male", date(2011, 12, 14), stream_b),
+    ("Agnes", "Nambi", "female", date(2012, 4, 26), stream_b),
+    ("Stephen", "Ouma", "male", date(2011, 8, 18), stream_b),
 ]
 demo_students = [student]
 for first_name, last_name, gender, birth_date, demo_stream in student_specs:
@@ -626,4 +639,5 @@ for school_term in (term_one, term):
                 card.publish()
 
 print("Academic demonstration data created successfully.")
-print("Logins: admin/Admin@2026, dos/School@2026, teacher/Teacher@2026, parent/Parent@2026, student/Student@2026")
+print("The existing admin password was preserved.")
+print("Demo accounts have unusable passwords unless DEMO_USER_PASSWORD was explicitly set.")
