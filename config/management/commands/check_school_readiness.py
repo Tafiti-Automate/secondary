@@ -5,6 +5,7 @@ from academics.models import AcademicYear, SchoolProfile
 from assessments.readiness import curriculum_coverage_for_year
 from exams.readiness import uneb_export_preflight
 from students.models import Enrollment
+from config.modules import get_enabled_modules
 
 
 class Command(BaseCommand):
@@ -31,6 +32,7 @@ class Command(BaseCommand):
                 warnings.append("School UNEB centre number is missing.")
             if not school.address:
                 warnings.append("School address is missing.")
+            self._check_operational_modules(school, errors, warnings)
 
         if year:
             coverage = curriculum_coverage_for_year(year)
@@ -62,6 +64,28 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f"School readiness passed with {len(set(warnings))} warning(s)."
         ))
+
+    @staticmethod
+    def _check_operational_modules(school, errors, warnings):
+        enabled = get_enabled_modules(school)
+        if "staff" in enabled:
+            from staff.models import StaffMember
+            if not StaffMember.objects.filter(is_deleted=False, status="active").exists():
+                warnings.append("Staff management is enabled but no active staff records exist.")
+        if "fees" in enabled:
+            from fees.models import FeeItem, FeeStructure
+            if not FeeItem.objects.filter(is_deleted=False, is_active=True).exists():
+                errors.append("Fees is enabled but no active fee items are configured.")
+            if not FeeStructure.objects.filter(is_deleted=False, status="published").exists():
+                errors.append("Fees is enabled but no published fee structure exists.")
+        if "finance" in enabled:
+            from finance.models import BankAccount, Budget, ExpenseCategory
+            if not ExpenseCategory.objects.filter(is_deleted=False, is_active=True).exists():
+                errors.append("Finance is enabled but no active expense categories are configured.")
+            if not BankAccount.objects.filter(is_deleted=False, is_active=True).exists():
+                warnings.append("Finance is enabled but no active bank account is configured.")
+            if not Budget.objects.filter(is_deleted=False, status="open").exists():
+                warnings.append("Finance is enabled but no budget is currently open.")
 
     @staticmethod
     def _academic_year(name, errors):

@@ -23,7 +23,10 @@ trusted local or CI environment:
 export DATABASE_URL='postgresql://.../neondb?sslmode=require&channel_binding=require'
 python manage.py migrate
 python manage.py createsuperuser
+python manage.py configure_modules academic
 ```
+
+Use `configure_modules full` for a full-system customer. Existing deployments remain academic-only when no module configuration exists. See `docs/MODULAR_FULL_SYSTEM.md` for custom module selection and the operational setup gates.
 
 Do not commit either Neon connection URL. Redeploy the Vercel project after
 adding or changing its environment variables.

@@ -1,6 +1,14 @@
-# Uganda Secondary School Academic Management System
+# Uganda Secondary School Modular Management System
 
-A complete, role-aware academic platform for Uganda lower-secondary CBC (S1–S4) and upper secondary (S5–S6). It is built with Django 6, Django REST Framework, JWT, PostgreSQL support, and a compiled Tailwind CSS interface.
+A role-aware secondary-school platform that can run as an academic-only product, a custom selection of modules, or a full school management system. It supports Uganda lower-secondary CBC (S1–S4) and upper secondary (S5–S6), Django 6, REST APIs, JWT and PostgreSQL.
+
+## Product modes
+
+- **Academic only (default):** students, academic structure, CBC assessment, examinations, attendance, timetables, communication and reports.
+- **Full system:** every academic module plus staff management, fee structures, student billing, receipts, institutional income, expenditure approvals, budgets, vendors, bank accounts and reconciliation records.
+- **Custom:** a school administrator can enable any combination from **Management → Modules & plan**. Disabled modules are hidden and direct URL/API access is blocked.
+
+Applications remain installed in every deployment so schema migrations are stable. Runtime module configuration controls what each school can use; separate customer forks are not required.
 
 ## Academic coverage
 
@@ -24,6 +32,11 @@ A complete, role-aware academic platform for Uganda lower-secondary CBC (S1–S4
 - Multilingual announcements, private family-school conversations, consent records, emergency broadcasts, resources and delivery queues
 - REST API, JWT claims, browsable OpenAPI documentation, pagination and throttling
 - Soft deletion, activity tracking and an academic audit trail
+- Per-school module selection with academic and full-system presets
+- Staff employment profiles, bank details and controlled document records
+- Class/term fee structures, bulk learner invoicing, adjustments, collections and printable receipts
+- Budgets, vendors, income, expenditure approval, cash flow and bank reconciliation registers
+- Permission-aware global search across enabled school records
 - Responsive mobile navigation, dark mode, accessible forms and print layouts
 
 ## Local setup
@@ -37,6 +50,7 @@ npm run build:css
 export DEBUG=True
 export DB_ENGINE=sqlite
 python manage.py migrate
+python manage.py configure_modules academic  # or: full
 python seed_data.py
 python manage.py runserver
 ```
@@ -66,6 +80,7 @@ python manage.py check_school_readiness --academic-year 2026
 ```
 
 See [API.md](API.md), [ERD.md](ERD.md), [DEPLOYMENT.md](DEPLOYMENT.md),
+[docs/MODULAR_FULL_SYSTEM.md](docs/MODULAR_FULL_SYSTEM.md),
 [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md), and
 [docs/SCHOOL_ACCEPTANCE_CHECKLIST.md](docs/SCHOOL_ACCEPTANCE_CHECKLIST.md), and
 [docs/EVOLUTION_ARCHITECTURE.md](docs/EVOLUTION_ARCHITECTURE.md).

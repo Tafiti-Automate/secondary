@@ -1,5 +1,7 @@
 from django import forms
 
+from config.modules import MODULES
+
 
 class StyledModelForm(forms.ModelForm):
     """Consistent, accessible styling for every portal form."""
@@ -27,3 +29,12 @@ class DateRangeValidationMixin:
         if start and end and end <= start:
             self.add_error("end_date", "End date must be after the start date.")
         return cleaned
+
+
+class SchoolModulesForm(forms.Form):
+    enabled_modules = forms.MultipleChoiceField(
+        choices=[(code, item["name"]) for code, item in MODULES.items()],
+        widget=forms.CheckboxSelectMultiple,
+        required=False,
+        label="Enabled modules",
+    )

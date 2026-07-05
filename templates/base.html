@@ -16,49 +16,58 @@
     <aside id="sidebar" class="fixed inset-y-0 left-0 z-50 flex w-[286px] -translate-x-full flex-col border-r border-slate-200 bg-white transition-transform duration-300 lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 dark:border-slate-700 dark:bg-slate-800">
       <div class="flex h-20 items-center gap-3 border-b border-slate-100 px-5 dark:border-slate-800">
         {% if school.logo %}<img src="{{ school.logo.url }}" class="h-11 w-11 rounded-xl object-cover" alt="{{ school.name }} logo">{% else %}<div class="grid h-11 w-11 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-teal-700 text-lg font-black text-white shadow-glow">A+</div>{% endif %}
-        <div class="min-w-0"><p class="truncate font-display text-sm font-extrabold text-slate-950 dark:text-white">{{ school.name|default:"Acacia Secondary" }}</p><p class="text-xs text-slate-500">Academic command centre</p></div>
+        <div class="min-w-0"><p class="truncate font-display text-sm font-extrabold text-slate-950 dark:text-white">{{ school.name|default:"Acacia Secondary" }}</p><p class="truncate text-xs text-slate-500">{{ module_plan_name }}</p></div>
         <button class="ml-auto rounded-lg p-2 text-slate-500 lg:hidden" onclick="toggleSidebar(false)" aria-label="Close navigation">✕</button>
       </div>
       <nav class="flex-1 space-y-5 overflow-y-auto px-3 py-5">
         <div><p class="mb-2 px-3 text-[10px] font-bold uppercase tracking-[.2em] text-slate-400">Workspace</p>
           <a href="{% url 'dashboard' %}" class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}nav-link-active{% endif %}"><span>⌂</span> Dashboard</a>
-          <a href="{% url 'timetables:grid' %}" class="nav-link {% if request.resolver_match.namespace == 'timetables' %}nav-link-active{% endif %}"><span>▦</span> Timetable</a>
-          <a href="{% url 'communications:announcements' %}" class="nav-link {% if request.resolver_match.namespace == 'communications' and 'announcement' in request.resolver_match.url_name %}nav-link-active{% endif %}"><span>◉</span> Announcements</a>
+          {% if 'timetables' in enabled_modules %}<a href="{% url 'timetables:grid' %}" class="nav-link {% if request.resolver_match.namespace == 'timetables' %}nav-link-active{% endif %}"><span>▦</span> Timetable</a>{% endif %}
+          {% if 'communications' in enabled_modules %}<a href="{% url 'communications:announcements' %}" class="nav-link {% if request.resolver_match.namespace == 'communications' and 'announcement' in request.resolver_match.url_name %}nav-link-active{% endif %}"><span>◉</span> Announcements</a>
           <a href="{% url 'communications:conversations' %}" class="nav-link {% if request.resolver_match.namespace == 'communications' and 'conversation' in request.resolver_match.url_name %}nav-link-active{% endif %}"><span>◌</span> Conversations</a>
-          <a href="{% url 'communications:resources' %}" class="nav-link"><span>◇</span> Learning resources</a>
+          <a href="{% url 'communications:resources' %}" class="nav-link"><span>◇</span> Learning resources</a>{% endif %}
         </div>
         {% if request.user.role == 'teacher' or request.user.role == 'super_admin' or request.user.role == 'headteacher' or request.user.role == 'director_of_studies' or request.user.is_superuser %}
         <div><p class="mb-2 px-3 text-[10px] font-bold uppercase tracking-[.2em] text-slate-400">Academic operations</p>
-          <a href="{% url 'students:list' %}" class="nav-link {% if request.resolver_match.namespace == 'students' %}nav-link-active{% endif %}"><span>♙</span> Students</a>
-          <a href="{% url 'assessments:list' %}" class="nav-link {% if request.resolver_match.namespace == 'assessments' and 'portfolio' not in request.resolver_match.url_name %}nav-link-active{% endif %}"><span>✓</span> Assessments & CBC</a>
+          {% if 'students' in enabled_modules %}<a href="{% url 'students:list' %}" class="nav-link {% if request.resolver_match.namespace == 'students' %}nav-link-active{% endif %}"><span>♙</span> Students</a>{% endif %}
+          {% if 'assessments' in enabled_modules %}<a href="{% url 'assessments:list' %}" class="nav-link {% if request.resolver_match.namespace == 'assessments' and 'portfolio' not in request.resolver_match.url_name %}nav-link-active{% endif %}"><span>✓</span> Assessments & CBC</a>
           <a href="{% url 'assessments:portfolio-list' %}" class="nav-link {% if request.resolver_match.namespace == 'assessments' and 'portfolio' in request.resolver_match.url_name %}nav-link-active{% endif %}"><span>◫</span> Digital portfolios</a>
           <a href="{% url 'assessments:curriculum' %}" class="nav-link"><span>⌁</span> Curriculum & outcomes</a>
-          <a href="{% url 'assessments:teaching-plans' %}" class="nav-link"><span>▧</span> Schemes & lesson plans</a>
-          <a href="{% url 'exams:list' %}" class="nav-link {% if request.resolver_match.namespace == 'exams' %}nav-link-active{% endif %}"><span>✎</span> Examinations</a>
+          <a href="{% url 'assessments:teaching-plans' %}" class="nav-link"><span>▧</span> Schemes & lesson plans</a>{% endif %}
+          {% if 'exams' in enabled_modules %}<a href="{% url 'exams:list' %}" class="nav-link {% if request.resolver_match.namespace == 'exams' %}nav-link-active{% endif %}"><span>✎</span> Examinations</a>
           {% if request.user.role == 'super_admin' or request.user.role == 'headteacher' or request.user.role == 'director_of_studies' or request.user.is_superuser %}<a href="{% url 'exams:upper-plans' %}" class="nav-link"><span>◈</span> S5/S6 annual plans</a>{% endif %}
-          <a href="{% url 'exams:uneb-hub' %}" class="nav-link"><span>▣</span> UNEB CA register</a>
-          <a href="{% url 'attendance:list' %}" class="nav-link {% if request.resolver_match.namespace == 'attendance' %}nav-link-active{% endif %}"><span>◷</span> Attendance</a>
-          <a href="{% url 'reports:list' %}" class="nav-link {% if request.resolver_match.namespace == 'reports' %}nav-link-active{% endif %}"><span>▤</span> Report cards</a>
-          <a href="{% url 'reports:transcript-list' %}" class="nav-link"><span>▥</span> Transcripts</a>
+          <a href="{% url 'exams:uneb-hub' %}" class="nav-link"><span>▣</span> UNEB CA register</a>{% endif %}
+          {% if 'attendance' in enabled_modules %}<a href="{% url 'attendance:list' %}" class="nav-link {% if request.resolver_match.namespace == 'attendance' %}nav-link-active{% endif %}"><span>◷</span> Attendance</a>{% endif %}
+          {% if 'reports' in enabled_modules %}<a href="{% url 'reports:list' %}" class="nav-link {% if request.resolver_match.namespace == 'reports' %}nav-link-active{% endif %}"><span>▤</span> Report cards</a>
+          <a href="{% url 'reports:transcript-list' %}" class="nav-link"><span>▥</span> Transcripts</a>{% endif %}
         </div>
+        {% endif %}
+        {% if request.user.role == 'super_admin' or request.user.role == 'headteacher' or request.user.role == 'director_of_studies' or request.user.role == 'bursar' or request.user.is_superuser %}
+        {% if 'staff' in enabled_modules or 'fees' in enabled_modules or 'finance' in enabled_modules %}<div><p class="mb-2 px-3 text-[10px] font-bold uppercase tracking-[.2em] text-slate-400">School operations</p>
+          {% if 'staff' in enabled_modules and request.user.role != 'bursar' %}<a href="{% url 'staff:list' %}" class="nav-link {% if request.resolver_match.namespace == 'staff' %}nav-link-active{% endif %}"><span>♟</span> Staff management</a>{% endif %}
+          {% if 'fees' in enabled_modules %}<a href="{% url 'fees:dashboard' %}" class="nav-link {% if request.resolver_match.namespace == 'fees' %}nav-link-active{% endif %}"><span>¤</span> Fees & billing</a>{% endif %}
+          {% if 'finance' in enabled_modules %}<a href="{% url 'finance:dashboard' %}" class="nav-link {% if request.resolver_match.namespace == 'finance' %}nav-link-active{% endif %}"><span>◫</span> Finance & budgets</a>{% endif %}
+        </div>{% endif %}
         {% endif %}
         {% if request.user.role == 'super_admin' or request.user.role == 'headteacher' or request.user.role == 'director_of_studies' or request.user.is_superuser %}
         <div><p class="mb-2 px-3 text-[10px] font-bold uppercase tracking-[.2em] text-slate-400">Management</p>
-          <a href="{% url 'academics:overview' %}" class="nav-link {% if request.resolver_match.namespace == 'academics' %}nav-link-active{% endif %}"><span>⌘</span> Academic structure</a>
-          <a href="{% url 'reports:analytics' %}" class="nav-link"><span>↗</span> Analytics</a>
+          {% if 'academics' in enabled_modules %}<a href="{% url 'academics:overview' %}" class="nav-link {% if request.resolver_match.namespace == 'academics' %}nav-link-active{% endif %}"><span>⌘</span> Academic structure</a>{% endif %}
+          {% if 'reports' in enabled_modules %}<a href="{% url 'reports:analytics' %}" class="nav-link"><span>↗</span> Analytics</a>{% endif %}
           <a href="{% url 'accounts:user-list-page' %}" class="nav-link {% if request.resolver_match.namespace == 'accounts' and request.resolver_match.url_name == 'user-list-page' %}nav-link-active{% endif %}"><span>⚿</span> Users & roles</a>
-          <a href="{% url 'academics:school-profile' %}" class="nav-link"><span>⚙</span> School settings</a>
-          <a href="{% url 'communications:consents' %}" class="nav-link"><span>✓</span> Consent register</a>
-          <a href="{% url 'communications:emergency-list' %}" class="nav-link"><span>!</span> Emergency communication</a>
-          <a href="{% url 'exams:uneb-adapters-list' %}" class="nav-link"><span>⇄</span> UNEB format adapters</a>
+          {% if 'academics' in enabled_modules %}<a href="{% url 'academics:school-profile' %}" class="nav-link"><span>⚙</span> School settings</a>{% endif %}
+          <a href="{% url 'module-settings' %}" class="nav-link {% if request.resolver_match.url_name == 'module-settings' %}nav-link-active{% endif %}"><span>◈</span> Modules & plan</a>
+          {% if 'communications' in enabled_modules %}<a href="{% url 'communications:consents' %}" class="nav-link"><span>✓</span> Consent register</a>
+          <a href="{% url 'communications:emergency-list' %}" class="nav-link"><span>!</span> Emergency communication</a>{% endif %}
+          {% if 'exams' in enabled_modules %}<a href="{% url 'exams:uneb-adapters-list' %}" class="nav-link"><span>⇄</span> UNEB format adapters</a>{% endif %}
         </div>
         {% endif %}
         {% if request.user.role == 'student' or request.user.role == 'parent' %}
         <div><p class="mb-2 px-3 text-[10px] font-bold uppercase tracking-[.2em] text-slate-400">My academics</p>
-          <a href="{% url 'reports:list' %}" class="nav-link"><span>▤</span> Results & reports</a>
-          <a href="{% url 'reports:transcript-list' %}" class="nav-link"><span>▥</span> Academic transcripts</a>
-          <a href="{% url 'assessments:portfolio-list' %}" class="nav-link {% if request.resolver_match.namespace == 'assessments' and 'portfolio' in request.resolver_match.url_name %}nav-link-active{% endif %}"><span>◫</span> Digital portfolio</a>
-          <a href="{% url 'communications:resources' %}" class="nav-link"><span>◇</span> Study resources</a>
+          {% if 'reports' in enabled_modules %}<a href="{% url 'reports:list' %}" class="nav-link"><span>▤</span> Results & reports</a>
+          <a href="{% url 'reports:transcript-list' %}" class="nav-link"><span>▥</span> Academic transcripts</a>{% endif %}
+          {% if 'assessments' in enabled_modules %}<a href="{% url 'assessments:portfolio-list' %}" class="nav-link {% if request.resolver_match.namespace == 'assessments' and 'portfolio' in request.resolver_match.url_name %}nav-link-active{% endif %}"><span>◫</span> Digital portfolio</a>{% endif %}
+          {% if 'fees' in enabled_modules %}<a href="{% url 'fees:my-fees' %}" class="nav-link"><span>¤</span> Fees & receipts</a>{% endif %}
+          {% if 'communications' in enabled_modules %}<a href="{% url 'communications:resources' %}" class="nav-link"><span>◇</span> Study resources</a>{% endif %}
         </div>
         {% endif %}
       </nav>
@@ -74,6 +83,7 @@
         <button class="mr-3 rounded-xl border border-slate-200 p-2.5 lg:hidden dark:border-slate-700" onclick="toggleSidebar(true)" aria-label="Open navigation">☰</button>
         <div class="min-w-0"><p class="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{% block header_title %}Academic workspace{% endblock %}</p><p class="hidden text-xs text-slate-500 sm:block">{% if current_term %}{{ current_term }}{% else %}Set the current academic term{% endif %}</p></div>
         <div class="ml-auto flex items-center gap-2">
+          <form action="{% url 'global-search' %}" class="hidden w-56 xl:block"><label class="sr-only" for="globalSearch">Search</label><input id="globalSearch" class="form-control !mt-0 !min-h-10" type="search" name="q" value="{% if request.resolver_match.url_name == 'global-search' %}{{ request.GET.q }}{% endif %}" placeholder="Search school records…"></form>
           <a href="{% url 'communications:notifications' %}" class="relative grid h-10 w-10 place-items-center rounded-xl border border-slate-200 text-slate-500 hover:text-brand-600 dark:border-slate-700" aria-label="Notifications">♢{% if notifications %}<span class="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-white dark:ring-slate-950"></span>{% endif %}</a>
           <button id="themeButton" onclick="toggleTheme()" class="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 text-slate-500 dark:border-slate-700" aria-label="Toggle dark mode">◐</button>
           <form action="{% url 'accounts:logout' %}" method="post" class="hidden sm:block">{% csrf_token %}<button class="btn-secondary">Sign out</button></form>

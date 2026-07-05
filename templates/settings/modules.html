@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Modules & plan{% endblock %}
+{% block header_title %}Modules & plan{% endblock %}
+{% block content %}
+<div class="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+  <div><p class="eyebrow">School configuration</p><h1 class="page-title mt-2">Choose what this school uses</h1><p class="mt-2 max-w-3xl text-sm text-slate-500">Keep one reliable platform and enable only the capabilities included in the client's package. Disabled areas disappear from navigation and direct access is blocked.</p></div>
+  <div class="rounded-2xl border border-brand-200 bg-brand-50 px-5 py-3 dark:border-brand-900 dark:bg-brand-950/30"><p class="text-xs font-bold uppercase tracking-wider text-brand-700">Current plan</p><p class="mt-1 font-display text-lg font-extrabold text-brand-950 dark:text-brand-100">{{ active_plan }}</p><p class="text-xs text-brand-700">{{ enabled_count }} of {{ module_count }} modules</p></div>
+</div>
+
+<div class="mb-6 grid gap-4 md:grid-cols-2">
+  <form method="post" class="card-pad">{% csrf_token %}<input type="hidden" name="preset" value="academic"><p class="eyebrow">Preset</p><h2 class="mt-2 font-display text-xl font-bold">Academic only</h2><p class="mt-2 text-sm text-slate-500">Admissions, academics, assessment, exams, attendance, timetable, communication and reports.</p><button class="btn-secondary mt-5">Use academic preset</button></form>
+  <form method="post" class="card-pad border-brand-200">{% csrf_token %}<input type="hidden" name="preset" value="full"><p class="eyebrow">Preset</p><h2 class="mt-2 font-display text-xl font-bold">Full school system</h2><p class="mt-2 text-sm text-slate-500">Everything in Academic plus staff management, fees and institutional finance.</p><button class="btn-primary mt-5">Use full-system preset</button></form>
+</div>
+
+<form method="post" class="space-y-5">{% csrf_token %}
+  {% if form.non_field_errors %}<div class="rounded-xl bg-rose-50 p-4 text-sm text-rose-700">{{ form.non_field_errors }}</div>{% endif %}
+  {% for group, modules in module_groups.items %}
+  <section class="card-pad"><div class="mb-4"><p class="eyebrow">{{ group }}</p><h2 class="mt-1 font-display text-lg font-bold">{{ group }} modules</h2></div>
+    <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      {% for module in modules %}<label class="flex cursor-pointer gap-3 rounded-xl border border-slate-200 p-4 transition hover:border-brand-300 dark:border-slate-700"><input class="form-checkbox mt-1" type="checkbox" name="enabled_modules" value="{{ module.code }}" {% if module.code in form.enabled_modules.value %}checked{% endif %}><span><span class="block font-semibold">{{ module.name }}</span><span class="mt-1 block text-xs leading-5 text-slate-500">{{ module.description }}</span></span></label>{% endfor %}
+    </div>
+  </section>{% endfor %}
+  <div class="sticky bottom-4 flex justify-end"><button class="btn-primary shadow-lg">Save custom configuration</button></div>
+</form>
+{% endblock %}

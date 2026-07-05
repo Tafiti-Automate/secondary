@@ -1,6 +1,9 @@
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.core.exceptions import PermissionDenied
 
+from academics.models import SchoolProfile
+from config.modules import module_is_enabled
+
 
 ACADEMIC_MANAGERS = {"super_admin", "headteacher", "director_of_studies"}
 ACADEMIC_STAFF = ACADEMIC_MANAGERS | {"teacher"}
@@ -26,3 +29,17 @@ class AcademicManagerRequiredMixin(RoleRequiredMixin):
 
 class AcademicStaffRequiredMixin(RoleRequiredMixin):
     allowed_roles = ACADEMIC_STAFF
+
+
+class FinanceStaffRequiredMixin(RoleRequiredMixin):
+    allowed_roles = ACADEMIC_MANAGERS | {"bursar"}
+
+
+class ModuleRequiredMixin:
+    required_module = None
+
+    def dispatch(self, request, *args, **kwargs):
+        school = SchoolProfile.objects.filter(is_deleted=False).first()
+        if self.required_module and not module_is_enabled(self.required_module, school):
+            raise PermissionDenied("This module is not enabled for your school.")
+        return super().dispatch(request, *args, **kwargs)

@@ -18,6 +18,7 @@
       </h1>
       <p class="mt-3 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base dark:text-slate-300">
         {% if dashboard_kind == 'management' %}Your school’s academic pulse, learner progress, attendance and operational risks—updated from live records.
+        {% elif dashboard_kind == 'operations' %}Collections, balances, budgets and approval work are ready from the live school ledgers.
         {% elif dashboard_kind == 'teacher' %}Your teaching day, marking progress and learner performance are ready at a glance.
         {% elif dashboard_kind == 'student' %}Track your learning progress, attendance, assignments and today’s lessons in one place.
         {% else %}Follow your learners’ attendance, academic trajectory and important school updates.{% endif %}
@@ -61,7 +62,12 @@
   {% endfor %}
 </section>
 
-{% if dashboard_kind == 'management' %}
+{% if dashboard_kind == 'operations' %}
+<section class="mt-6 grid gap-6 xl:grid-cols-2">
+  {% if 'fees' in operations_enabled %}<article class="dashboard-panel"><div class="flex items-center justify-between"><div><p class="eyebrow">Fee desk</p><h2 class="mt-1 font-display text-xl font-bold">Recent collections</h2></div><a href="{% url 'fees:dashboard' %}" class="btn-secondary">Open fees</a></div><div class="mt-5 divide-y divide-slate-100 dark:divide-slate-800">{% for payment in recent_payments %}<a href="{% url 'fees:receipt' payment.pk %}" class="flex items-center justify-between gap-4 py-3 text-sm"><span><strong>{{ payment.invoice.student.full_name }}</strong><span class="block text-xs text-slate-500">{{ payment.receipt_number }} · {{ payment.payment_date }}</span></span><strong class="text-emerald-600">UGX {{ payment.amount|floatformat:0 }}</strong></a>{% empty %}<p class="py-8 text-sm text-slate-500">No fee payments recorded.</p>{% endfor %}</div></article>{% endif %}
+  {% if 'finance' in operations_enabled %}<article class="dashboard-panel"><div class="flex items-center justify-between"><div><p class="eyebrow">Approval desk</p><h2 class="mt-1 font-display text-xl font-bold">Pending expenditure</h2></div><a href="{% url 'finance:dashboard' %}" class="btn-secondary">Open finance</a></div><div class="mt-5 divide-y divide-slate-100 dark:divide-slate-800">{% for item in pending_expenditures %}<a href="{% url 'finance:expenditure-detail' item.pk %}" class="flex items-center justify-between gap-4 py-3 text-sm"><span><strong>{{ item.description|truncatechars:55 }}</strong><span class="block text-xs text-slate-500">{{ item.reference }} · {{ item.category }}</span></span><strong>UGX {{ item.gross_amount|floatformat:0 }}</strong></a>{% empty %}<p class="py-8 text-sm text-slate-500">No expenditure awaiting approval.</p>{% endfor %}</div></article>{% endif %}
+</section>
+{% elif dashboard_kind == 'management' %}
 <section class="mt-6 grid gap-6 xl:grid-cols-12">
   <article class="dashboard-panel xl:col-span-8"><div class="flex items-start justify-between gap-4"><div><p class="eyebrow">Academic trajectory</p><h2 class="mt-1 font-display text-xl font-bold">School performance trend</h2><p class="mt-1 text-xs text-slate-500">Average across complete learner reports by term</p></div><a href="{% url 'reports:analytics' %}" class="btn-secondary !min-h-9 !px-3 !py-1.5">Full analytics</a></div><div class="chart-shell min-h-72"><canvas class="chart-canvas" data-dashboard-chart="performance_history" role="img" aria-label="School performance line graph"></canvas><div class="chart-tooltip"></div></div><div class="chart-legend" data-chart-legend="performance_history"></div></article>
   <article class="dashboard-panel xl:col-span-4"><p class="eyebrow">Presence</p><h2 class="mt-1 font-display text-xl font-bold">Attendance mix</h2><p class="mt-1 text-xs text-slate-500">All attendance records in the selected term</p><div class="chart-shell-sm"><canvas class="chart-canvas" data-dashboard-chart="attendance_mix" role="img" aria-label="Attendance doughnut chart"></canvas><div class="chart-tooltip"></div></div><div class="chart-legend" data-chart-legend="attendance_mix"></div></article>

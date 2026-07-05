@@ -4,7 +4,7 @@ from django.contrib import admin
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
-from .views import DashboardView, health
+from .views import DashboardView, GlobalSearchView, SchoolModulesView, health
 
 admin.site.site_header = "School Academic Administration"
 admin.site.site_title = "Academic Management"
@@ -13,10 +13,15 @@ admin.site.index_title = "Academic records"
 urlpatterns = [
     path("", DashboardView.as_view(), name="dashboard"),
     path("health/", health, name="health"),
+    path("settings/modules/", SchoolModulesView.as_view(), name="module-settings"),
+    path("search/", GlobalSearchView.as_view(), name="global-search"),
     path("admin/", admin.site.urls),
     path("accounts/", include("accounts.urls")),
     path("academics/", include("academics.urls")),
     path("students/", include("students.urls")),
+    path("staff/", include("staff.urls")),
+    path("fees/", include("fees.urls")),
+    path("finance/", include("finance.urls")),
     path("assessments/", include("assessments.urls")),
     path("examinations/", include("exams.urls")),
     path("attendance/", include("attendance.urls")),

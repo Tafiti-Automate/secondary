@@ -1,10 +1,12 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib import messages
 from django.core.cache import cache
-from django.db import connection
-from django.db.models import Avg, Count, Q
+from django.db import connection, transaction
+from django.db.models import Avg, Count, Q, Sum
 from django.http import JsonResponse
+from django.urls import reverse
 from django.utils import timezone
-from django.views.generic import TemplateView
+from django.views.generic import FormView, TemplateView
 
 from academics.models import CalendarEvent, Stream, SubjectAllocation, Term
 from assessments.models import Assessment, CompetencyAssessment, LearningOutcomeAssessment
@@ -14,6 +16,11 @@ from exams.models import Examination
 from reports.models import ReportCard, ReportSubjectResult
 from students.models import Student
 from timetables.models import TimetableEntry
+from academics.models import SchoolProfile
+from config.forms import SchoolModulesForm
+from config.mixins import AcademicManagerRequiredMixin
+from config.models import SchoolModule
+from config.modules import MODULES, PRESETS, clear_module_cache, get_enabled_modules, get_plan_name
 
 
 class DashboardView(LoginRequiredMixin, TemplateView):
@@ -38,7 +45,9 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         })
         if self.request.GET.get("refresh") and current_term:
             cache.delete(f"management-dashboard:{current_term.pk}")
-        if user.is_superuser or user.role in {"super_admin", "headteacher", "director_of_studies"}:
+        if user.role == "bursar":
+            context.update(self.operations_context())
+        elif user.is_superuser or user.role in {"super_admin", "headteacher", "director_of_studies"}:
             context.update(self.manager_context(current_term))
         elif user.role == "teacher":
             context.update(self.teacher_context(user, current_term, today))
@@ -49,6 +58,33 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         else:
             context.update(self.manager_context(current_term))
         return context
+
+    def operations_context(self):
+        from decimal import Decimal
+
+        from fees.models import Payment, StudentInvoice
+        from finance.models import Budget, Expenditure, Income
+
+        school = SchoolProfile.objects.filter(is_deleted=False).first()
+        enabled = get_enabled_modules(school)
+        payments = Payment.objects.filter(is_deleted=False, is_reversed=False)
+        collected = payments.aggregate(total=Sum("amount"))["total"] or Decimal("0.00") if "fees" in enabled else Decimal("0.00")
+        invoices = StudentInvoice.objects.filter(is_deleted=False).exclude(status="cancelled") if "fees" in enabled else StudentInvoice.objects.none()
+        outstanding = sum((invoice.balance for invoice in invoices), Decimal("0.00"))
+        other_income = Income.objects.filter(is_deleted=False).aggregate(total=Sum("amount"))["total"] or Decimal("0.00") if "finance" in enabled else Decimal("0.00")
+        pending = Expenditure.objects.filter(is_deleted=False, status="pending") if "finance" in enabled else Expenditure.objects.none()
+        return {
+            "dashboard_kind": "operations",
+            "operations_enabled": enabled,
+            "recent_payments": payments.select_related("invoice__student")[:6] if "fees" in enabled else [],
+            "pending_expenditures": pending.select_related("category", "vendor")[:6],
+            "stats": [
+                {"label": "Fees collected", "value": f"UGX {collected:,.0f}", "tone": "emerald", "icon": "report", "detail": "All unreversed payments"},
+                {"label": "Fee balances", "value": f"UGX {outstanding:,.0f}", "tone": "amber", "icon": "alert", "detail": f"{invoices.exclude(status='paid').count()} open invoices"},
+                {"label": "Other income", "value": f"UGX {other_income:,.0f}", "tone": "indigo", "icon": "report", "detail": "Non-fee institutional income"},
+                {"label": "Pending approvals", "value": pending.count(), "tone": "rose", "icon": "clock", "detail": f"{Budget.objects.filter(is_deleted=False, status='open').count() if 'finance' in enabled else 0} open budgets"},
+            ],
+        }
 
     def visible_announcements(self, user):
         now = timezone.now()
@@ -255,6 +291,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             "teacher_workload": teacher_workload,
         }
 
+
     def teacher_context(self, user, term, today):
         allocations = SubjectAllocation.objects.filter(teacher=user, term=term, is_deleted=False).select_related("subject", "stream") if term else SubjectAllocation.objects.none()
         assessments = Assessment.objects.filter(created_by=user, term=term, is_deleted=False).select_related("subject", "stream") if term else Assessment.objects.none()
@@ -426,6 +463,110 @@ class DashboardView(LoginRequiredMixin, TemplateView):
                 {"label": "Unread notices", "value": Notification.objects.filter(recipient=user, read_at__isnull=True, is_deleted=False).count(), "tone": "rose", "icon": "bell", "detail": "Messages requiring attention"},
             ],
         }
+
+
+class SchoolModulesView(AcademicManagerRequiredMixin, FormView):
+    template_name = "settings/modules.html"
+    form_class = SchoolModulesForm
+    success_url = "/settings/modules/"
+
+    def get_school(self):
+        return SchoolProfile.objects.filter(is_deleted=False).first()
+
+    def get_initial(self):
+        initial = super().get_initial()
+        initial["enabled_modules"] = list(get_enabled_modules(self.get_school()))
+        return initial
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        enabled = get_enabled_modules(self.get_school())
+        context.update({
+            "module_groups": self._module_groups(),
+            "active_plan": get_plan_name(enabled),
+            "enabled_count": len(enabled),
+            "module_count": len(MODULES),
+        })
+        return context
+
+    def form_valid(self, form):
+        school = self.get_school()
+        if not school:
+            form.add_error(None, "Create the school profile before configuring modules.")
+            return self.form_invalid(form)
+        selected = set(form.cleaned_data["enabled_modules"])
+        preset = self.request.POST.get("preset")
+        if preset in PRESETS:
+            selected = set(PRESETS[preset])
+        with transaction.atomic():
+            for code in MODULES:
+                SchoolModule.objects.update_or_create(
+                    school=school,
+                    code=code,
+                    defaults={"is_enabled": code in selected, "enabled_by": self.request.user, "is_deleted": False},
+                )
+        clear_module_cache(school.pk)
+        messages.success(self.request, f"{get_plan_name(selected)} configuration saved. Changes are active immediately.")
+        return super().form_valid(form)
+
+    @staticmethod
+    def _module_groups():
+        groups = {}
+        for code, item in MODULES.items():
+            groups.setdefault(item["group"], []).append({"code": code, **item})
+        return groups
+
+
+class GlobalSearchView(LoginRequiredMixin, TemplateView):
+    template_name = "search/results.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        query = self.request.GET.get("q", "").strip()
+        groups = []
+        if len(query) < 2:
+            context.update({"query": query, "result_groups": groups})
+            return context
+        school = SchoolProfile.objects.filter(is_deleted=False).first()
+        enabled = get_enabled_modules(school)
+        user = self.request.user
+
+        if "students" in enabled:
+            from students.views import scoped_students
+
+            items = scoped_students(user).filter(
+                Q(first_name__icontains=query) | Q(last_name__icontains=query)
+                | Q(other_names__icontains=query) | Q(student_number__icontains=query)
+                | Q(admission_number__icontains=query)
+            )[:8]
+            groups.append({"label": "Students", "items": [{"title": item.full_name, "meta": f"{item.student_number} · {item.stream or 'Not placed'}", "url": reverse("students:detail", args=[item.pk])} for item in items]})
+
+        if "academics" in enabled and (user.is_superuser or user.role in {"super_admin", "headteacher", "director_of_studies"}):
+            from academics.models import Subject
+
+            items = Subject.objects.filter(Q(name__icontains=query) | Q(code__icontains=query), is_deleted=False)[:8]
+            groups.append({"label": "Subjects", "items": [{"title": item.name, "meta": f"{item.code} · {item.get_curriculum_level_display()}", "url": reverse("academics:subjects-edit", args=[item.pk])} for item in items]})
+
+        if "staff" in enabled and (user.is_superuser or user.role in {"super_admin", "headteacher", "director_of_studies"}):
+            from staff.models import StaffMember
+
+            items = StaffMember.objects.filter(Q(first_name__icontains=query) | Q(last_name__icontains=query) | Q(staff_number__icontains=query) | Q(job_title__icontains=query), is_deleted=False)[:8]
+            groups.append({"label": "Staff", "items": [{"title": item.full_name, "meta": f"{item.staff_number} · {item.job_title}", "url": reverse("staff:detail", args=[item.pk])} for item in items]})
+
+        if "fees" in enabled:
+            from fees.views import scoped_invoices
+
+            items = scoped_invoices(user).filter(Q(invoice_number__icontains=query) | Q(student__first_name__icontains=query) | Q(student__last_name__icontains=query) | Q(student__student_number__icontains=query))[:8]
+            groups.append({"label": "Fee invoices", "items": [{"title": item.invoice_number, "meta": f"{item.student.full_name} · UGX {item.balance:,.0f} balance", "url": reverse("fees:invoice-detail", args=[item.pk])} for item in items]})
+
+        if "finance" in enabled and (user.is_superuser or user.role in {"super_admin", "headteacher", "director_of_studies", "bursar"}):
+            from finance.models import Expenditure
+
+            items = Expenditure.objects.filter(Q(reference__icontains=query) | Q(description__icontains=query) | Q(vendor__name__icontains=query), is_deleted=False)[:8]
+            groups.append({"label": "Expenditure", "items": [{"title": item.reference, "meta": f"{item.description[:70]} · UGX {item.gross_amount:,.0f}", "url": reverse("finance:expenditure-detail", args=[item.pk])} for item in items]})
+
+        context.update({"query": query, "result_groups": [group for group in groups if group["items"]]})
+        return context
 
 
 def health(request):
